@@ -1,0 +1,12 @@
+# =============================================================================
+# Git Accounts Configuration List
+# Location: ~/.config/git/accountList
+# Managed by customizeGit.bash
+# Format: USERNAME:EMAIL:SHORTNAME
+# USERNAME will be used for git host identifier and git config user.name
+# EMAIL will be used for git config user.email and SSH key generation
+# SHORTNAME will be used for custom git functions referring to this account
+# 
+# Example:
+# CompanyAccount:workmail@gmail.com:Work
+# =============================================================================

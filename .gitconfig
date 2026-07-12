@@ -1,0 +1,5 @@
+# This is Git's global configuration file, placed in your home directory (~/.gitconfig).
+[gpg "ssh"]
+	allowedSignersFile = ~/.config/git/allowed_signers
+[core]
+	editor = nvim

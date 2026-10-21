@@ -73,7 +73,14 @@ header() { echo; echo "$(bold "=== $* ===")"; echo; }
 # Environment Detection
 # ---------------------------------------------------------------------------
 detect_env() {
-    if [[ -d /data/data/com.termux ]] || [[ -n "${TERMUX_VERSION:-}" ]]; then
+    # Check for proot-distro Linux container FIRST — proot bind-mounts
+    # /data/data/com.termux into the guest, so the Termux directory check
+    # below would incorrectly match inside a proot container otherwise.
+    if [[ -n "${PD_CONTAINER:-}" ]] || [[ "${container:-}" == "proot-distro" ]]; then
+        ENV_NAME="linux"
+        ENV_DIR="$REPO_DIR/Linux"
+        PKG_MANAGER="apt"
+    elif [[ -d /data/data/com.termux ]] || [[ -n "${TERMUX_VERSION:-}" ]]; then
         ENV_NAME="termux"
         ENV_DIR="$REPO_DIR/Termux"
         PKG_MANAGER="pkg"
@@ -98,6 +105,11 @@ detect_env() {
 # ---------------------------------------------------------------------------
 cmd_exists() { command -v "$1" &>/dev/null; }
 
+# Returns "sudo" when not running as root, empty string when already root.
+# Allows the same commands to work both in proot-distro (root, no sudo) and
+# on a normal Linux desktop (non-root, needs sudo).
+maybe_sudo() { [[ "$(id -u)" -eq 0 ]] || echo "sudo"; }
+
 pkg_install() {
     local pkg="$1"
     case "$PKG_MANAGER" in
@@ -112,7 +124,9 @@ pkg_install() {
             brew install "$pkg"
             ;;
         apt)
-            sudo apt-get update -y && sudo apt-get install -y "$pkg"
+            DEBIAN_FRONTEND=noninteractive $(maybe_sudo) apt-get update -y \
+                && DEBIAN_FRONTEND=noninteractive $(maybe_sudo) apt-get install -y \
+                    -o Dpkg::Options::="--force-confold" "$pkg"
             ;;
     esac
 }
@@ -181,7 +195,7 @@ install_zsh() {
             zsh_path="$(which zsh)"
             if ! grep -qF "$zsh_path" /etc/shells 2>/dev/null; then
                 warn "Adding $zsh_path to /etc/shells (requires sudo)"
-                echo "$zsh_path" | sudo tee -a /etc/shells >/dev/null
+                echo "$zsh_path" | $(maybe_sudo) tee -a /etc/shells >/dev/null
             fi
             chsh -s "$zsh_path"
             ;;
@@ -189,9 +203,17 @@ install_zsh() {
             local zsh_path
             zsh_path="$(which zsh)"
             if ! grep -qF "$zsh_path" /etc/shells 2>/dev/null; then
-                echo "$zsh_path" | sudo tee -a /etc/shells >/dev/null
+                echo "$zsh_path" | $(maybe_sudo) tee -a /etc/shells >/dev/null
             fi
-            sudo chsh -s "$zsh_path" "$USER"
+            local current_user
+            current_user="$(whoami)"
+            if cmd_exists chsh; then
+                $(maybe_sudo) chsh -s "$zsh_path" "$current_user"
+            else
+                # In minimal proot containers chsh may be absent — patch /etc/passwd directly
+                warn "chsh not found. Patching /etc/passwd directly..."
+                $(maybe_sudo) sed -i "s|^\(${current_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1${zsh_path}|" /etc/passwd
+            fi
             ;;
     esac
     info "Default shell configured to zsh."
@@ -213,12 +235,22 @@ install_essentials() {
             essentials=(git mandoc neovim which tree)
             ;;
         linux)
-            essentials=(git mandoc neovim which tree openssh)
+            # Ubuntu/Debian package names differ from Termux:
+            #   openssh → openssh-client   (ssh client tools)
+            #   mandoc  → man-db           (man page viewer)
+            essentials=(git man-db neovim which tree openssh-client)
             ;;
     esac
 
     for pkg in "${essentials[@]}"; do
-        if cmd_exists "$pkg" 2>/dev/null; then
+        local is_installed=false
+        if [[ "$PKG_MANAGER" == "apt" ]]; then
+            dpkg -s "$pkg" &>/dev/null 2>&1 && is_installed=true
+        else
+            cmd_exists "$pkg" 2>/dev/null && is_installed=true
+        fi
+
+        if $is_installed; then
             info "$pkg — $(green "already installed")"
         else
             info "Installing $pkg..."

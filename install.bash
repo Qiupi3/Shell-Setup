@@ -1,7 +1,19 @@
 #!/bin/sh
-# Universal trampoline: ensure execution under bash on Termux, macOS, and Linux
+# Universal trampoline: ensure execution under bash on Termux, macOS, and Linux.
+#
+# IMPORTANT: proot-distro inherits Termux's environment ($PREFIX, $PATH, etc.)
+# into the Linux container. We must detect this case and strip those vars
+# before re-execing, otherwise the script picks up Termux's Android binaries
+# (wrong dynamic linker, wrong libraries) and fails inside the Linux container.
 if [ -z "$BASH_VERSION" ] || [ -n "$POSIXLY_CORRECT" ]; then
-    if [ -n "$PREFIX" ] && [ -x "$PREFIX/bin/bash" ]; then
+    if [ -n "${PD_CONTAINER}" ] || [ "${container}" = "proot-distro" ]; then
+        # Inside proot-distro: clear Termux-specific env pollution and use the
+        # native Linux bash. unset PREFIX so 'which' and PATH resolution find
+        # the container's own tools, not Termux's Android binaries.
+        unset PREFIX TERMUX_VERSION LD_PRELOAD
+        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        exec /bin/bash "$0" "$@"
+    elif [ -n "$PREFIX" ] && [ -x "$PREFIX/bin/bash" ]; then
         exec "$PREFIX/bin/bash" "$0" "$@"
     elif command -v bash >/dev/null 2>&1; then
         exec bash "$0" "$@"

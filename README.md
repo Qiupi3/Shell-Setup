@@ -5,7 +5,7 @@ A modular, cross-platform Zsh and development environment configuration for **Te
 ## Features
 
 - **Root Modular Zsh**: Core shell modules are centrally maintained in `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-custom.zsh`, `prompt.zsh`), copied to `~/.zsh/`, and sourced dynamically by `~/.zshrc`.
-- **Environment Base Configs**: Platform-specific shortcuts (`base.bash`) installed as `~/.zsh/base.zsh` (e.g., Homebrew aliases on macOS, pkg/storage aliases on Termux).
+- **Environment Base Configs**: Platform-specific shortcuts (`base.bash`) installed as `~/.zsh/base.zsh` (e.g., Homebrew aliases on macOS, pkg/storage aliases on Termux, sudo-aware apt aliases on Ubuntu/Debian).
 - **Universal Neovim Setup**: Complete, modern Neovim configuration maintained in `.config/nvim/` and safely installed directly into `~/.config/nvim`.
 - **Unified Git Utilities & Submodule Shortcuts**: Comprehensive Git aliases and submodule commands merged into `zsh/git-aliases.zsh` with descriptions, example usages, safety indicators (`[DESTRUCTIVE]`), and auto-resetting author overrides (`gcase`).
 - **Interactive SSH & Git Commit Signing Setup**: Automated SSH key generator (`.ssh/setup.bash` or `ssh-setup` alias) supporting Auth keys, Signing keys, or Both, automatic `allowed_signers` setup, and clipboard integration for GitHub.
@@ -40,6 +40,26 @@ Running without arguments launches an interactive menu:
     8) Everything        — full install + all extensions + SSH setup
     q) Quit
 ```
+
+### Android proot-distro (Ubuntu or Debian)
+
+Both `ubuntu` and `debian` proot-distro images are supported. Install the image
+once, log in, and run the installer from inside the container:
+
+```bash
+proot-distro install ubuntu        # or: proot-distro install debian
+proot-distro login ubuntu          # or: proot-distro login debian
+
+# Inside the container:
+git clone https://github.com/<your-user>/Shell-Setup.git
+cd Shell-Setup
+./install.bash --all
+```
+
+The installer detects the proot container, clears inherited Termux/Android
+environment variables, and uses the container's own `apt`, `git`, `zsh`, and
+other tools. `sudo` is not required inside proot-distro because the login user
+is root; on a normal Debian/Ubuntu desktop the installer uses `sudo` when needed.
 
 ### Command-Line Flags
 
@@ -97,6 +117,8 @@ Shell-Setup/
 │   ├── clean-up.bash           # Unified macOS smart cleanup editor & storage analysis
 │   ├── .zshrc                  # Modular macOS .zshrc
 │   └── README.md               # macOS guide
+├── Linux/
+│   └── base.bash               # Ubuntu/Debian (and proot-distro) apt aliases
 └── Termux/
     ├── base.bash               # Termux-specific aliases (pkgup, pkgin, storage shortcuts)
     ├── clean-up.bash           # Unified Termux smart cleanup editor & storage analysis

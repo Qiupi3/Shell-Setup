@@ -2,21 +2,36 @@
 # Universal trampoline: ensure execution under bash on Termux, macOS, and Linux.
 #
 # IMPORTANT: proot-distro inherits Termux's environment ($PREFIX, $PATH, etc.)
-# into the Linux container. We must detect this case and strip those vars
-# before re-execing, otherwise the script picks up Termux's Android binaries
-# (wrong dynamic linker, wrong libraries) and fails inside the Linux container.
-if [ -z "$BASH_VERSION" ] || [ -n "$POSIXLY_CORRECT" ]; then
-    if [ -n "${PD_CONTAINER}" ] || [ "${container}" = "proot-distro" ]; then
-        # Inside proot-distro: clear Termux-specific env pollution and use the
-        # native Linux bash. unset PREFIX so 'which' and PATH resolution find
-        # the container's own tools, not Termux's Android binaries.
-        unset PREFIX TERMUX_VERSION LD_PRELOAD
-        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        exec /bin/bash "$0" "$@"
-    elif [ -n "$PREFIX" ] && [ -x "$PREFIX/bin/bash" ]; then
+# into the Linux container. We must detect this case and strip those vars,
+# otherwise the script picks up Termux's Android binaries (wrong dynamic
+# linker, wrong libraries) and fails inside the Linux container.
+#
+# Cleanup runs before the bash check on purpose: a fresh `proot-distro login`
+# already starts a bash shell, so testing BASH_VERSION alone would skip the
+# cleanup in exactly the case that needs it.
+if [ -n "${PD_CONTAINER:-}" ] || [ "${container:-}" = "proot-distro" ]; then
+    # Proot bind-mounts the Termux prefix and leaks Android/Termux variables
+    # (PREFIX, BOOTCLASSPATH, PATH, ...) into the guest. Remove them and use
+    # the container's native Linux search path instead.
+    unset PREFIX TERMUX_VERSION TERMUX__HOME TERMUX__PREFIX
+    unset TERMUX_APP__PACKAGE_NAME TERMUX_APP__PID TERMUX_APP__UID
+    unset ANDROID_ROOT ANDROID_DATA ANDROID_ART_ROOT ANDROID_I18N_ROOT
+    unset ANDROID_TZDATA_ROOT EXTERNAL_STORAGE
+    unset BOOTCLASSPATH DEX2OATBOOTCLASSPATH LD_PRELOAD LD_LIBRARY_PATH
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+fi
+
+if [ -z "${BASH_VERSION:-}" ] || [ -n "${POSIXLY_CORRECT:-}" ]; then
+    # Do not let the re-exec inherit POSIX mode, otherwise bash would come
+    # back with POSIXLY_CORRECT set and this block would loop forever.
+    unset POSIXLY_CORRECT
+
+    if [ -n "${PREFIX:-}" ] && [ -x "$PREFIX/bin/bash" ]; then
         exec "$PREFIX/bin/bash" "$0" "$@"
     elif command -v bash >/dev/null 2>&1; then
         exec bash "$0" "$@"
+    elif [ -x /bin/bash ]; then
+        exec /bin/bash "$0" "$@"
     else
         echo "Error: bash is required to run this script." >&2
         exit 1
@@ -65,6 +80,9 @@ ZSHRC="$HOME/.zshrc"
 ENV_NAME=""          # termux | mac | linux
 ENV_DIR=""           # $REPO_DIR/Termux | $REPO_DIR/Mac | $REPO_DIR/Linux
 PKG_MANAGER=""       # pkg | brew | apt
+LINUX_ID=""          # debian | ubuntu | ... (from /etc/os-release)
+LINUX_VERSION=""     # 13 | 24.04 | ...
+APT_UPDATED=0        # run apt-get update at most once per installer run
 
 MANAGED_BEGIN="# >>> Shell-Setup managed >>>"
 MANAGED_END="# <<< Shell-Setup managed <<<"
@@ -84,6 +102,25 @@ header() { echo; echo "$(bold "=== $* ===")"; echo; }
 # ---------------------------------------------------------------------------
 # Environment Detection
 # ---------------------------------------------------------------------------
+# Read a field from /etc/os-release without sourcing it.
+linux_field() {
+    local key="$1" file="${2:-/etc/os-release}"
+    [[ -r "$file" ]] || return 0
+    sed -n "s/^${key}=//p" "$file" | head -n1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
+detect_linux_distro() {
+    LINUX_ID="$(linux_field ID)"
+    LINUX_VERSION="$(linux_field VERSION_ID)"
+
+    if [[ -z "$LINUX_ID" && -r /etc/debian_version ]]; then
+        LINUX_ID="debian"
+        LINUX_VERSION="$(cat /etc/debian_version 2>/dev/null || true)"
+    fi
+
+    LINUX_ID="${LINUX_ID:-linux}"
+}
+
 detect_env() {
     # Check for proot-distro Linux container FIRST — proot bind-mounts
     # /data/data/com.termux into the guest, so the Termux directory check
@@ -91,7 +128,14 @@ detect_env() {
     if [[ -n "${PD_CONTAINER:-}" ]] || [[ "${container:-}" == "proot-distro" ]]; then
         ENV_NAME="linux"
         ENV_DIR="$REPO_DIR/Linux"
-        PKG_MANAGER="apt"
+        detect_linux_distro
+        if cmd_exists apt-get && cmd_exists dpkg; then
+            PKG_MANAGER="apt"
+        else
+            err "Unsupported proot-distro image: ${LINUX_ID} ${LINUX_VERSION} (apt/dpkg not found)"
+            err "Supported images: ubuntu, debian"
+            exit 1
+        fi
     elif [[ -d /data/data/com.termux ]] || [[ -n "${TERMUX_VERSION:-}" ]]; then
         ENV_NAME="termux"
         ENV_DIR="$REPO_DIR/Termux"
@@ -103,13 +147,24 @@ detect_env() {
     elif [[ "$(uname -s)" == "Linux" ]]; then
         ENV_NAME="linux"
         ENV_DIR="$REPO_DIR/Linux"
-        PKG_MANAGER="apt"
+        detect_linux_distro
+        if cmd_exists apt-get && cmd_exists dpkg; then
+            PKG_MANAGER="apt"
+        else
+            err "Unsupported Linux distribution: ${LINUX_ID} ${LINUX_VERSION}"
+            err "This installer supports Debian/Ubuntu-based systems (apt/dpkg)."
+            exit 1
+        fi
     else
         err "Unsupported operating system: $(uname -s)"
         exit 1
     fi
 
-    info "Detected environment: $(bold "$ENV_NAME") (Package manager: $(bold "$PKG_MANAGER"))"
+    if [[ "$ENV_NAME" == "linux" ]]; then
+        info "Detected environment: $(bold "$ENV_NAME") — $(bold "$LINUX_ID ${LINUX_VERSION:-}") (Package manager: $(bold "$PKG_MANAGER"))"
+    else
+        info "Detected environment: $(bold "$ENV_NAME") (Package manager: $(bold "$PKG_MANAGER"))"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -117,10 +172,30 @@ detect_env() {
 # ---------------------------------------------------------------------------
 cmd_exists() { command -v "$1" &>/dev/null; }
 
-# Returns "sudo" when not running as root, empty string when already root.
-# Allows the same commands to work both in proot-distro (root, no sudo) and
-# on a normal Linux desktop (non-root, needs sudo).
-maybe_sudo() { [[ "$(id -u)" -eq 0 ]] || echo "sudo"; }
+# Run a command as root: directly when already root (proot-distro, containers),
+# through sudo on a normal Linux desktop.
+as_root() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+    elif cmd_exists sudo; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
+
+# Command shipped by a package whose name differs from the executable.
+pkg_command() {
+    case "$1" in
+        man-db)          echo "man" ;;
+        openssh-client)  echo "ssh" ;;
+        gnu-which|which) echo "which" ;;
+        neovim)          echo "nvim" ;;
+        nodejs|node)     echo "node" ;;
+        ca-certificates) echo "update-ca-certificates" ;;
+        *)               echo "$1" ;;
+    esac
+}
 
 pkg_install() {
     local pkg="$1"
@@ -136,9 +211,12 @@ pkg_install() {
             brew install "$pkg"
             ;;
         apt)
-            DEBIAN_FRONTEND=noninteractive $(maybe_sudo) apt-get update -y \
-                && DEBIAN_FRONTEND=noninteractive $(maybe_sudo) apt-get install -y \
-                    -o Dpkg::Options::="--force-confold" "$pkg"
+            if [[ "$APT_UPDATED" -eq 0 ]]; then
+                as_root env DEBIAN_FRONTEND=noninteractive apt-get update -y
+                APT_UPDATED=1
+            fi
+            as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                -o Dpkg::Options::="--force-confold" "$pkg"
             ;;
     esac
 }
@@ -187,6 +265,18 @@ safe_copy_recursive() {
 # ---------------------------------------------------------------------------
 # 1. Zsh Shell Installation & Default Configuration
 # ---------------------------------------------------------------------------
+set_passwd_shell() {
+    local user="$1"
+    local shell_path="$2"
+
+    if ! grep -q "^${user}:" /etc/passwd 2>/dev/null; then
+        warn "User '${user}' not found in /etc/passwd; cannot set default shell."
+        return 1
+    fi
+
+    as_root sed -i "s|^\(${user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1${shell_path}|" /etc/passwd
+}
+
 install_zsh() {
     header "Zsh Shell Setup"
 
@@ -197,34 +287,50 @@ install_zsh() {
         pkg_install zsh
     fi
 
-    info "Setting zsh as default shell..."
+    local zsh_path
+    zsh_path="$(command -v zsh || true)"
+    if [[ -z "$zsh_path" ]]; then
+        for candidate in /usr/bin/zsh /bin/zsh /usr/local/bin/zsh; do
+            if [[ -x "$candidate" ]]; then
+                zsh_path="$candidate"
+                break
+            fi
+        done
+    fi
+    if [[ -z "$zsh_path" ]]; then
+        err "zsh was installed but its executable could not be found."
+        exit 1
+    fi
+
+    info "Setting zsh as default shell ($zsh_path)..."
     case "$ENV_NAME" in
         termux)
             chsh -s zsh
             ;;
         mac)
-            local zsh_path
-            zsh_path="$(which zsh)"
             if ! grep -qF "$zsh_path" /etc/shells 2>/dev/null; then
                 warn "Adding $zsh_path to /etc/shells (requires sudo)"
-                echo "$zsh_path" | $(maybe_sudo) tee -a /etc/shells >/dev/null
+                echo "$zsh_path" | as_root tee -a /etc/shells >/dev/null
             fi
-            chsh -s "$zsh_path"
+            as_root chsh -s "$zsh_path" "$(whoami)"
             ;;
         linux)
-            local zsh_path
-            zsh_path="$(which zsh)"
             if ! grep -qF "$zsh_path" /etc/shells 2>/dev/null; then
-                echo "$zsh_path" | $(maybe_sudo) tee -a /etc/shells >/dev/null
+                echo "$zsh_path" | as_root tee -a /etc/shells >/dev/null
             fi
             local current_user
-            current_user="$(whoami)"
+            current_user="$(id -un)"
             if cmd_exists chsh; then
-                $(maybe_sudo) chsh -s "$zsh_path" "$current_user"
+                if ! as_root chsh -s "$zsh_path" "$current_user"; then
+                    # Minimal proot-distro images (notably Debian) can ship chsh
+                    # but still fail under proot/PAM. Patch /etc/passwd directly.
+                    warn "chsh failed. Patching /etc/passwd directly..."
+                    set_passwd_shell "$current_user" "$zsh_path"
+                fi
             else
                 # In minimal proot containers chsh may be absent — patch /etc/passwd directly
                 warn "chsh not found. Patching /etc/passwd directly..."
-                $(maybe_sudo) sed -i "s|^\(${current_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1${zsh_path}|" /etc/passwd
+                set_passwd_shell "$current_user" "$zsh_path"
             fi
             ;;
     esac
@@ -247,19 +353,26 @@ install_essentials() {
             essentials=(git mandoc neovim which tree)
             ;;
         linux)
-            # Ubuntu/Debian package names differ from Termux:
+            # Debian and Ubuntu package names differ from Termux:
             #   openssh → openssh-client   (ssh client tools)
             #   mandoc  → man-db           (man page viewer)
-            essentials=(git man-db neovim which tree openssh-client)
+            #   which   → gnu-which        (real package; "which" is virtual)
+            essentials=(git man-db neovim gnu-which tree openssh-client ca-certificates)
             ;;
     esac
 
     for pkg in "${essentials[@]}"; do
         local is_installed=false
         if [[ "$PKG_MANAGER" == "apt" ]]; then
-            dpkg -s "$pkg" &>/dev/null 2>&1 && is_installed=true
+            # Some names are virtual packages (e.g. "which" → gnu-which), so
+            # also accept the installed executable as proof of installation.
+            if dpkg -s "$pkg" &>/dev/null 2>&1; then
+                is_installed=true
+            elif cmd_exists "$(pkg_command "$pkg")"; then
+                is_installed=true
+            fi
         else
-            cmd_exists "$pkg" 2>/dev/null && is_installed=true
+            cmd_exists "$(pkg_command "$pkg")" 2>/dev/null && is_installed=true
         fi
 
         if $is_installed; then
@@ -278,6 +391,13 @@ install_modules() {
     header "Zsh Modules & Configurations"
 
     mkdir -p "$ZSH_DIR"
+
+    # The syntax-highlighting plugin is cloned with git. Modules-only installs
+    # may run before --essentials, so make sure git is available first.
+    if ! cmd_exists git; then
+        info "git is required to install zsh plugins. Installing git..."
+        pkg_install git
+    fi
 
     # Copy modular *.zsh configs from root zsh folder
     if [[ -d "$REPO_DIR/zsh" ]]; then
@@ -769,7 +889,7 @@ When run without arguments, launches the interactive selection menu.
 Supported Environments:
   • Termux (Android)
   • macOS (Homebrew)
-  • Linux (apt)
+  • Linux — Debian / Ubuntu (apt), including proot-distro containers
 EOF
 }
 

@@ -3,10 +3,11 @@
 # Location: ~/.config/git/accountList
 # Managed by customizeGit.bash
 # Format: USERNAME:EMAIL:SHORTNAME
-# USERNAME will be used for git host identifier and git config user.name
-# EMAIL will be used for git config user.email and SSH key generation
-# SHORTNAME will be used for custom git functions referring to this account
-# 
-# Example:
-# CompanyAccount:workmail@gmail.com:Work
 # =============================================================================
+#
+# Add your accounts below (one per line), for example:
+#   Work:work@example.com:work
+#   Personal:personal@example.com:personal
+#
+# This repository ships no real accounts on purpose. The installer copies this
+# template only when ~/.config/git/accountList does not exist yet.

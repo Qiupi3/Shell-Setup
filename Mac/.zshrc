@@ -51,8 +51,7 @@ compinit
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|=*' 'l:|=* r:|=*'
 
 # >>> Exports >>>
-export EDITOR=nvim
-export VISUAL=nvim
+# EDITOR / VISUAL are managed by the Neovim module (Option 2).
 
 # >>> Source configs from ~/.zsh/ >>>
 for f in ~/.zsh/*.zsh(N); do

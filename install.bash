@@ -40,33 +40,40 @@ fi
 
 # Shell-Setup Universal Installer
 #
-# Auto-detects environment (Termux, macOS, Linux) and sets up:
-#   - Zsh as default shell
-#   - Essential CLI tools (git, mandoc, neovim, which, tree, openssh)
-#   - Modular zsh configs from root zsh/
-#   - Unified git aliases & submodule shortcuts
-#   - User configurations in ~/.config (Neovim ~/.config/nvim, Git accountList ~/.config/git)
-#   - Environment-specific base configs (base.bash -> ~/.zsh/base.zsh)
-#   - Termux configuration & styling (Termux/.termux -> ~/.termux)
-#   - Global Git configuration (.gitconfig & allowed_signers)
-#   - SSH key setup helper (~/.ssh/setup.bash)
-#   - Optional extensions (Node.js, PHP, Antigravity CLI)
+# Auto-detects the environment (Termux, macOS, Debian/Ubuntu Linux, including
+# proot-distro containers) and installs one or more selectable modules:
+#
+#   Option 1  Shell environment  — Zsh as default shell, modular aliases,
+#                                  git aliases, zsh-syntax-highlighting, ~/.zshrc
+#   Option 2  Neovim editor      — ~/.config/nvim, EDITOR/VISUAL, core.editor
+#   Option 3  Git accounts & SSH — key audit, key creation, commit signing,
+#                                  account-specific clone wrappers
+#   Option 4  Extensions         — pick languages and CLI tooling individually
+#
+# User data is always written under $HOME. The repository is never modified.
 #
 # Usage:
+#   curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash
 #   ./install.bash                    # Interactive menu
-#   ./install.bash --all              # Full setup (zsh + essentials + modules + gitconfig + ssh)
-#   ./install.bash --modules          # Copy zsh modules, base.bash, .config, .termux & configure ~/.zshrc
-#   ./install.bash --essentials       # Install essential packages
-#   ./install.bash --ssh              # Run interactive SSH & Git signing setup
-#   ./install.bash --gitconfig        # Configure global Git config & allowed_signers
-#   ./install.bash --git-aliases      # Install unified git aliases & submodule shortcuts
-#   ./install.bash --extensions       # Interactive extension picker
-#   ./install.bash --node             # Install Node.js
-#   ./install.bash --php              # Install PHP
-#   ./install.bash --antigravity      # Install Antigravity CLI
-#   ./install.bash --zsh              # Install zsh & set as default shell
-#   ./install.bash --everything       # Install everything including extensions and SSH setup
-#   ./install.bash --help             # Show usage help
+#   ./install.bash --shell            # Option 1 (offers Option 2 at the end)
+#   ./install.bash --nvim             # Option 2
+#   ./install.bash --git              # Option 3
+#   ./install.bash --ext              # Option 4 (interactive picker)
+#   ./install.bash --ext python,node  # Option 4 (non-interactive)
+#   ./install.bash --all              # Options 1 + 2 + 3
+#   ./install.bash --everything       # Options 1 + 2 + 3 + 4
+#
+# Legacy flags (still supported):
+#   --modules        Copy shell configs only (no package install, no chsh)
+#   --essentials     Install the union of module dependencies + QoL tools
+#   --zsh            Install zsh and set it as the default shell
+#   --ssh            Alias for --git
+#   --gitconfig      Only write ~/.gitconfig and allowed_signers
+#   --git-accounts   Only run customizeGit.bash
+#   --git-aliases    Only install/update unified git aliases
+#   --extensions     Alias for --ext
+#   --node --php --antigravity
+#   --help, -h       Show usage help
 # =============================================================================
 set -euo pipefail
 
@@ -83,9 +90,66 @@ PKG_MANAGER=""       # pkg | brew | apt
 LINUX_ID=""          # debian | ubuntu | ... (from /etc/os-release)
 LINUX_VERSION=""     # 13 | 24.04 | ...
 APT_UPDATED=0        # run apt-get update at most once per installer run
+IS_PROOT_DISTRO=0    # 1 when running inside a proot-distro container
 
 MANAGED_BEGIN="# >>> Shell-Setup managed >>>"
 MANAGED_END="# <<< Shell-Setup managed <<<"
+EDITOR_BEGIN="# >>> Shell-Setup editor >>>"
+EDITOR_END="# <<< Shell-Setup editor <<<"
+
+# When 1, Option 1 offers to run Option 2 right after finishing. Disabled for
+# --all/--everything so Neovim runs exactly once.
+SHELL_OFFER_NVIM=1
+
+# ---------------------------------------------------------------------------
+# Self-bootstrap (curl | bash)
+# ---------------------------------------------------------------------------
+# Running `curl .../install.bash | bash` leaves us without the rest of the
+# repository. Download the current main tarball to a temporary directory,
+# re-run the real installer from it, then remove the temporary copy.
+# The `zsh/` directory is the marker: it is required by every module.
+if [[ ! -d "$REPO_DIR/zsh" ]]; then
+    BOOTSTRAP_RC=0
+    BOOTSTRAP_DIR=""
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "  ✗ curl is required to bootstrap Shell-Setup." >&2
+        exit 1
+    fi
+    if ! command -v tar >/dev/null 2>&1; then
+        echo "  ✗ tar is required to bootstrap Shell-Setup." >&2
+        exit 1
+    fi
+
+    BOOTSTRAP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t shell-setup)"
+    trap 'rm -rf "$BOOTSTRAP_DIR"' EXIT
+
+    echo "  » Downloading Shell-Setup..."
+    if ! curl -fsSL --retry 2 \
+        https://github.com/Qiupi3/Shell-Setup/archive/refs/heads/main.tar.gz \
+        | tar -xz -C "$BOOTSTRAP_DIR"; then
+        echo "  ✗ Failed to download Shell-Setup." >&2
+        exit 1
+    fi
+
+    BOOTSTRAP_REPO="$BOOTSTRAP_DIR/Shell-Setup-main"
+    if [[ ! -f "$BOOTSTRAP_REPO/install.bash" ]]; then
+        echo "  ✗ Downloaded archive is missing install.bash." >&2
+        exit 1
+    fi
+
+    # A piped script has no usable stdin. Prefer the controlling terminal so
+    # the interactive menu and the extension picker still work.
+    if [[ -t 0 ]]; then
+        bash "$BOOTSTRAP_REPO/install.bash" "$@" || BOOTSTRAP_RC=$?
+    elif (exec </dev/tty) 2>/dev/null; then
+        bash "$BOOTSTRAP_REPO/install.bash" "$@" </dev/tty || BOOTSTRAP_RC=$?
+    else
+        bash "$BOOTSTRAP_REPO/install.bash" "$@" || BOOTSTRAP_RC=$?
+    fi
+
+    exit "$BOOTSTRAP_RC"
+fi
 
 # ---------------------------------------------------------------------------
 # Formatting Helpers
@@ -94,6 +158,8 @@ bold()   { printf '\033[1m%s\033[0m' "$*"; }
 green()  { printf '\033[32m%s\033[0m' "$*"; }
 yellow() { printf '\033[33m%s\033[0m' "$*"; }
 red()    { printf '\033[31m%s\033[0m' "$*"; }
+cyan()   { printf '\033[36m%s\033[0m' "$*"; }
+dim()    { printf '\033[2m%s\033[0m' "$*"; }
 info()   { echo "  $(green "»") $*"; }
 warn()   { echo "  $(yellow "⚠") $*"; }
 err()    { echo "  $(red "✗") $*" >&2; }
@@ -126,6 +192,7 @@ detect_env() {
     # /data/data/com.termux into the guest, so the Termux directory check
     # below would incorrectly match inside a proot container otherwise.
     if [[ -n "${PD_CONTAINER:-}" ]] || [[ "${container:-}" == "proot-distro" ]]; then
+        IS_PROOT_DISTRO=1
         ENV_NAME="linux"
         ENV_DIR="$REPO_DIR/Linux"
         detect_linux_distro
@@ -192,7 +259,15 @@ pkg_command() {
         gnu-which|which) echo "which" ;;
         neovim)          echo "nvim" ;;
         nodejs|node)     echo "node" ;;
+        npm)             echo "npm" ;;
         ca-certificates) echo "update-ca-certificates" ;;
+        python3-pip)     echo "pip3" ;;
+        golang)          echo "go" ;;
+        default-jdk|openjdk-17|openjdk) echo "java" ;;
+        build-essential) echo "cc" ;;
+        ripgrep)         echo "rg" ;;
+        fd-find)         echo "fdfind" ;;
+        imagemagick)     echo "convert" ;;
         *)               echo "$1" ;;
     esac
 }
@@ -222,10 +297,24 @@ pkg_install() {
 }
 
 confirm() {
-    local prompt="${1:-Continue?} [Y/n] "
+    local prompt="${1:-Continue?}"
+    local default="${2:-y}"
+    local hint=" [Y/n] "
+    [[ "$default" == "n" ]] && hint=" [y/N] "
+
     local answer
-    read -r -p "$prompt" answer
-    [[ -z "$answer" || "$answer" =~ ^[Yy] ]]
+    # EOF (non-interactive run, e.g. installer invoked from a script) must not
+    # be treated as "yes", otherwise console-driven setup steps would run blind.
+    if ! read -r -p "${prompt}${hint}" answer; then
+        echo
+        return 1
+    fi
+
+    if [[ -z "$answer" ]]; then
+        [[ "$default" == "y" ]]
+        return
+    fi
+    [[ "$answer" =~ ^[Yy] ]]
 }
 
 # Safe recursive copy: merges contents of src_dir into dst_dir without deleting
@@ -338,93 +427,202 @@ install_zsh() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Essential Packages
+# 2. Package helpers & module dependencies
 # ---------------------------------------------------------------------------
-install_essentials() {
-    header "Essential Packages"
+# A package counts as installed when dpkg knows it (apt) or when its executable
+# exists. The executable fallback covers virtual packages such as "which".
+pkg_installed() {
+    local pkg="$1"
+    if [[ "$PKG_MANAGER" == "apt" ]] && dpkg -s "$pkg" &>/dev/null 2>&1; then
+        return 0
+    fi
+    local cmd
+    cmd="$(pkg_command "$pkg")"
+    [[ -n "$cmd" ]] && cmd_exists "$cmd"
+}
 
-    local -a essentials
+pkg_ensure() {
+    local pkg="$1"
+    if pkg_installed "$pkg"; then
+        info "$pkg — $(green "already installed")"
+    else
+        info "Installing $pkg..."
+        pkg_install "$pkg"
+    fi
+}
 
+# Packages each module needs in order to work on its own.
+shell_dep_pkgs() {
     case "$ENV_NAME" in
-        termux)
-            essentials=(git mandoc neovim which tree openssh)
-            ;;
-        mac)
-            essentials=(git mandoc neovim which tree)
-            ;;
-        linux)
-            # Debian and Ubuntu package names differ from Termux:
-            #   openssh → openssh-client   (ssh client tools)
-            #   mandoc  → man-db           (man page viewer)
-            #   which   → gnu-which        (real package; "which" is virtual)
-            essentials=(git man-db neovim gnu-which tree openssh-client ca-certificates)
-            ;;
+        linux)  echo "git ca-certificates" ;;
+        termux) echo "git" ;;
+        mac)    echo "git" ;;
     esac
+}
 
-    for pkg in "${essentials[@]}"; do
-        local is_installed=false
-        if [[ "$PKG_MANAGER" == "apt" ]]; then
-            # Some names are virtual packages (e.g. "which" → gnu-which), so
-            # also accept the installed executable as proof of installation.
-            if dpkg -s "$pkg" &>/dev/null 2>&1; then
-                is_installed=true
-            elif cmd_exists "$(pkg_command "$pkg")"; then
-                is_installed=true
-            fi
-        else
-            cmd_exists "$(pkg_command "$pkg")" 2>/dev/null && is_installed=true
-        fi
+nvim_dep_pkgs() {
+    case "$ENV_NAME" in
+        linux|termux|mac) echo "neovim" ;;
+    esac
+}
 
-        if $is_installed; then
-            info "$pkg — $(green "already installed")"
-        else
-            info "Installing $pkg..."
-            pkg_install "$pkg"
-        fi
+ssh_dep_pkgs() {
+    case "$ENV_NAME" in
+        linux)  echo "openssh-client" ;;
+        termux) echo "openssh" ;;
+        mac)    echo "" ;;
+    esac
+}
+
+ensure_pkgs() {
+    local pkg
+    for pkg in "$@"; do
+        pkg_ensure "$pkg"
     done
 }
 
 # ---------------------------------------------------------------------------
-# 3. Zsh Modules & Configuration Files
+# 2b. Optional quality-of-life CLI tools
 # ---------------------------------------------------------------------------
-install_modules() {
-    header "Zsh Modules & Configurations"
+qol_specs() {
+    case "$ENV_NAME" in
+        linux)
+            QOL_SPECS=(
+                "tree|tree|trd / tra / trview aliases"
+                "gnu-which|which|'which' lookups in scripts"
+                "man-db|man|man pages and 'git help'"
+                "less|less|pagers (git log, man)"
+                "curl|curl|downloading installers"
+                "wget|wget|downloading files"
+                "unzip|unzip|.zip extraction"
+                "file|file|file type detection"
+                "procps|ps|process tools (ps, top)"
+            )
+            ;;
+        termux)
+            QOL_SPECS=(
+                "tree|tree|trd / tra / trview aliases"
+                "which|which|'which' lookups in scripts"
+                "mandoc|man|man pages and 'git help'"
+                "less|less|pagers (git log, man)"
+                "curl|curl|downloading installers"
+                "wget|wget|downloading files"
+                "unzip|unzip|.zip extraction"
+                "file|file|file type detection"
+                "procps|ps|process tools (ps, top)"
+            )
+            ;;
+        mac)
+            QOL_SPECS=(
+                "tree|tree|trd / tra / trview aliases"
+                "which|which|'which' lookups in scripts"
+                "mandoc|man|man pages and 'git help'"
+                "less|less|pagers (git log, man)"
+                "curl|curl|downloading installers"
+                "wget|wget|downloading files"
+                "unzip|unzip|.zip extraction"
+                "file|file|file type detection"
+            )
+            ;;
+    esac
+}
+
+# Optional, defaults to "no": show exactly which features break when skipped.
+install_qol_tools() {
+    header "Recommended CLI Tools (optional)"
+
+    qol_specs
+    local -a missing=()
+    local spec pkg label purpose
+    for spec in "${QOL_SPECS[@]}"; do
+        IFS='|' read -r pkg label purpose <<< "$spec"
+        pkg_installed "$pkg" || missing+=("$spec")
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        info "All recommended CLI tools are already installed."
+        return 0
+    fi
+
+    echo "  Not required, but skipping them disables these features:"
+    echo
+    for spec in "${missing[@]}"; do
+        IFS='|' read -r pkg label purpose <<< "$spec"
+        printf "    %-12s → %s\n" "$label" "$purpose"
+    done
+    echo
+
+    if ! confirm "  Install them now?" n; then
+        local -a names=()
+        for spec in "${missing[@]}"; do
+            IFS='|' read -r pkg label purpose <<< "$spec"
+            names+=("$label")
+        done
+        warn "Skipped: ${names[*]}"
+        warn "The features listed above will not work until those tools are installed."
+        return 0
+    fi
+
+    for spec in "${missing[@]}"; do
+        IFS='|' read -r pkg label purpose <<< "$spec"
+        pkg_ensure "$pkg"
+    done
+}
+
+# Legacy entry point for --essentials: the union of all module dependencies.
+install_essentials() {
+    header "Essential Packages"
+
+    ensure_pkgs $(shell_dep_pkgs) zsh $(nvim_dep_pkgs) $(ssh_dep_pkgs)
+
+    qol_specs
+    local spec pkg label purpose
+    for spec in "${QOL_SPECS[@]}"; do
+        IFS='|' read -r pkg label purpose <<< "$spec"
+        pkg_ensure "$pkg"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# 3. Shell environment (Option 1)
+# ---------------------------------------------------------------------------
+install_shell_configs() {
+    header "Shell Configuration Files"
 
     mkdir -p "$ZSH_DIR"
 
-    # The syntax-highlighting plugin is cloned with git. Modules-only installs
-    # may run before --essentials, so make sure git is available first.
-    if ! cmd_exists git; then
-        info "git is required to install zsh plugins. Installing git..."
-        pkg_install git
-    fi
+    # git is needed to clone the syntax-highlighting plugin.
+    cmd_exists git || pkg_ensure git
 
-    # Copy modular *.zsh configs from root zsh folder
     if [[ -d "$REPO_DIR/zsh" ]]; then
         info "Copying zsh modules from $(bold "$REPO_DIR/zsh/") → ~/.zsh/"
-        cp "$REPO_DIR/zsh/"*.zsh "$ZSH_DIR/"
-        # Clean up legacy standalone git-submodule.zsh if it exists from previous versions
-        rm -f "$ZSH_DIR/git-submodule.zsh"
+        local f base
+        for f in "$REPO_DIR/zsh"/*.zsh; do
+            [[ -e "$f" ]] || continue
+            base="$(basename "$f")"
+            cp "$f" "$ZSH_DIR/$base"
+        done
+
         if [[ -f "$REPO_DIR/zsh/customizeGit.bash" ]]; then
             info "Installing Git account customizer → ~/.zsh/customizeGit.bash"
             cp "$REPO_DIR/zsh/customizeGit.bash" "$ZSH_DIR/customizeGit.bash"
             chmod 755 "$ZSH_DIR/customizeGit.bash"
         fi
+
+        # Legacy cleanups only. Never touch ~/.zsh/git-custom.zsh: it holds
+        # account wrappers generated locally by the Git module.
+        rm -f "$ZSH_DIR/git-submodule.zsh"
+        rm -f "$ZSH_DIR/no-git.zsh"
     fi
 
-    # Copy environment-specific base configs (base.bash -> base.zsh)
     if [[ -f "$ENV_DIR/base.bash" ]]; then
         info "Copying base config from $(bold "$ENV_DIR/base.bash") → ~/.zsh/base.zsh"
         cp "$ENV_DIR/base.bash" "$ZSH_DIR/base.zsh"
-        # Clean up legacy no-git.zsh
-        rm -f "$ZSH_DIR/no-git.zsh"
     elif [[ -f "$ENV_DIR/no-git" ]]; then
         info "Copying legacy non-git config from $(bold "$ENV_DIR/no-git") → ~/.zsh/base.zsh"
         cp "$ENV_DIR/no-git" "$ZSH_DIR/base.zsh"
-        rm -f "$ZSH_DIR/no-git.zsh"
     fi
 
-    # Install zsh-syntax-highlighting plugin
     local plugin_dir="$ZSH_DIR/plugins/zsh-syntax-highlighting"
     if [[ ! -d "$plugin_dir" ]]; then
         info "Installing zsh-syntax-highlighting plugin..."
@@ -434,25 +632,6 @@ install_modules() {
         info "zsh-syntax-highlighting plugin already installed, skipping."
     fi
 
-    # Copy shared configurations from root .config (e.g. nvim, git accountList)
-    if [[ -d "$REPO_DIR/.config" ]]; then
-        info "Copying shared configurations from $(bold "$REPO_DIR/.config/") → ~/.config/"
-        safe_copy_recursive "$REPO_DIR/.config" "$HOME/.config"
-    fi
-
-    # Fallback: copy legacy root nvim directory if present and not in .config/nvim
-    if [[ -d "$REPO_DIR/nvim" && ! -d "$REPO_DIR/.config/nvim" ]]; then
-        info "Copying legacy Neovim configuration from $(bold "$REPO_DIR/nvim/") → ~/.config/nvim/"
-        safe_copy_recursive "$REPO_DIR/nvim" "$HOME/.config/nvim"
-    fi
-
-    # Copy environment-specific .config directory if present
-    if [[ -d "$ENV_DIR/.config" ]]; then
-        info "Copying environment-specific .config/ from $(bold "$ENV_DIR/.config/") → ~/.config/"
-        safe_copy_recursive "$ENV_DIR/.config" "$HOME/.config"
-    fi
-
-    # Copy .termux directory if present (Termux only)
     if [[ -d "$ENV_DIR/.termux" ]]; then
         info "Copying Termux configuration from $(bold "$ENV_DIR/.termux/") → ~/.termux/"
         safe_copy_recursive "$ENV_DIR/.termux" "$HOME/.termux"
@@ -462,20 +641,154 @@ install_modules() {
         fi
     fi
 
-    # Ensure SSH setup script is installed to ~/.ssh/setup.bash
-    if [[ -f "$REPO_DIR/.ssh/setup.bash" ]]; then
-        mkdir -p "$HOME/.ssh"
-        chmod 700 "$HOME/.ssh"
-        info "Installing SSH setup helper → ~/.ssh/setup.bash"
-        cp "$REPO_DIR/.ssh/setup.bash" "$HOME/.ssh/setup.bash"
-        chmod 755 "$HOME/.ssh/setup.bash"
+    patch_zshrc
+}
+
+install_shell() {
+    header "Shell Environment (Zsh)"
+
+    ensure_pkgs $(shell_dep_pkgs)
+    install_zsh
+    install_qol_tools
+    install_shell_configs
+
+    if [[ "${SHELL_OFFER_NVIM:-1}" -eq 1 ]]; then
+        echo
+        if confirm "  Also set up Neovim as the default editor (same as Option 2)?" y; then
+            install_nvim
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 3b. Neovim (Option 2)
+# ---------------------------------------------------------------------------
+install_nvim_config() {
+    header "Neovim Configuration"
+
+    local src="$REPO_DIR/.config/nvim"
+    if [[ -d "$src" ]]; then
+        info "Copying Neovim config from $(bold "$src/") → ~/.config/nvim/"
+        safe_copy_recursive "$src" "$HOME/.config/nvim"
+    elif [[ -d "$REPO_DIR/nvim" ]]; then
+        info "Copying legacy Neovim config from $(bold "$REPO_DIR/nvim/") → ~/.config/nvim/"
+        safe_copy_recursive "$REPO_DIR/nvim" "$HOME/.config/nvim"
+    else
+        warn "No Neovim configuration found in the repository."
     fi
 
-    # Setup global Git configuration (.gitconfig & allowed_signers)
-    setup_gitconfig
+    if cmd_exists git; then
+        git config --global core.editor nvim 2>/dev/null || true
+    fi
 
-    # Configure ~/.zshrc
-    patch_zshrc
+    if [[ -f "$ZSHRC" ]]; then
+        patch_zshrc_editor
+    else
+        warn "~/.zshrc not found; skipped the EDITOR/VISUAL block."
+        warn "Run Option 1 (Shell environment) to finish the zsh setup."
+    fi
+}
+
+install_nvim() {
+    header "Neovim Editor"
+
+    ensure_pkgs $(nvim_dep_pkgs)
+    install_nvim_config
+
+    if cmd_exists nvim; then
+        if confirm "  Pre-install Neovim plugins now (lazy.nvim sync)?" y; then
+            info "Running lazy.nvim sync (this may take a while)..."
+            if nvim --headless "+Lazy! sync" +qa 2>/dev/null; then
+                info "Neovim plugins installed."
+            else
+                warn "Plugin sync failed (offline?). Plugins install on first launch."
+            fi
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 3c. Git accounts & SSH (Option 3)
+# ---------------------------------------------------------------------------
+install_git_helpers() {
+    mkdir -p "$ZSH_DIR"
+
+    if [[ -f "$REPO_DIR/zsh/git-functions.zsh" ]]; then
+        info "Installing generic git helpers → ~/.zsh/git-functions.zsh"
+        cp "$REPO_DIR/zsh/git-functions.zsh" "$ZSH_DIR/git-functions.zsh"
+    fi
+
+    if [[ -f "$REPO_DIR/zsh/customizeGit.bash" ]]; then
+        info "Installing Git account customizer → ~/.zsh/customizeGit.bash"
+        cp "$REPO_DIR/zsh/customizeGit.bash" "$ZSH_DIR/customizeGit.bash"
+        chmod 755 "$ZSH_DIR/customizeGit.bash"
+    fi
+}
+
+# Old installs may contain HTML-style comments copied from the template.
+# OpenSSH rejects "<!--" with "Bad configuration option", so strip them.
+repair_ssh_config() {
+    local cfg="$HOME/.ssh/config"
+    [[ -f "$cfg" ]] || return 0
+
+    if grep -qE '^[[:space:]]*(<!--|-->)' "$cfg"; then
+        warn "~/.ssh/config contains HTML-style comments (<!-- -->), which OpenSSH rejects."
+        local backup="$cfg.bak.$(date +%Y%m%d%H%M%S)"
+        cp "$cfg" "$backup"
+        sed -i -E '/^[[:space:]]*<!--/d; /^[[:space:]]*-->[[:space:]]*$/d' "$cfg"
+        info "Removed invalid comment markers (backup: $(bold "$backup"))"
+    fi
+}
+
+install_ssh_files() {
+    local ssh_dir="$HOME/.ssh"
+    mkdir -p "$ssh_dir"
+    chmod 700 "$ssh_dir"
+
+    if [[ -f "$REPO_DIR/.ssh/config" && ! -f "$ssh_dir/config" ]]; then
+        info "Installing initial SSH config → ~/.ssh/config"
+        cp "$REPO_DIR/.ssh/config" "$ssh_dir/config"
+        chmod 600 "$ssh_dir/config"
+    fi
+
+    repair_ssh_config
+
+    if [[ -f "$REPO_DIR/.ssh/setup.bash" ]]; then
+        info "Installing SSH setup helper → ~/.ssh/setup.bash"
+        cp "$REPO_DIR/.ssh/setup.bash" "$ssh_dir/setup.bash"
+        chmod 755 "$ssh_dir/setup.bash"
+    fi
+
+    # Make sure OpenSSH can actually parse the resulting config.
+    if cmd_exists ssh && ! ssh -G github.com >/dev/null 2>&1; then
+        warn "OpenSSH still cannot parse ~/.ssh/config; please inspect it manually."
+    fi
+}
+
+install_git_ssh() {
+    header "Git Accounts & SSH"
+
+    ensure_pkgs $(ssh_dep_pkgs)
+    setup_gitconfig
+    install_git_helpers
+    install_ssh_files
+
+    echo
+    if confirm "  Run the SSH key audit and setup now?" y; then
+        if bash "$HOME/.ssh/setup.bash"; then
+            info "SSH setup finished."
+        else
+            warn "SSH setup ended without completing."
+            warn "Re-run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+        fi
+    else
+        info "Skipped. Run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+    fi
+
+    echo
+    if confirm "  Manage Git account wrappers now (customizeGit)?" y; then
+        setup_git_accounts
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -509,7 +822,6 @@ setup_gitconfig() {
     else
         info "Configuring global git settings in ~/.gitconfig..."
         git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers 2>/dev/null || true
-        git config --global core.editor nvim 2>/dev/null || true
     fi
     info "Global Git configuration setup completed."
 }
@@ -517,11 +829,25 @@ setup_gitconfig() {
 # ---------------------------------------------------------------------------
 # Patch or Create ~/.zshrc
 # ---------------------------------------------------------------------------
-patch_zshrc() {
-    info "Checking ~/.zshrc configuration..."
+# Return the managed block for the current environment. When the environment
+# ships its own .zshrc with managed markers (e.g. Linux/.zshrc), use that so the
+# config lives in the repo instead of in this script. Termux/macOS .zshrc files
+# have no markers, so they keep the generic fallback block for compatibility.
+managed_zshrc_block() {
+    local env_zshrc="$ENV_DIR/.zshrc"
 
-    local source_block
-    source_block=$(cat <<BLOCK
+    if [[ -f "$env_zshrc" ]] \
+        && grep -qF "$MANAGED_BEGIN" "$env_zshrc" \
+        && grep -qF "$MANAGED_END" "$env_zshrc"; then
+        awk -v begin="$MANAGED_BEGIN" -v end="$MANAGED_END" '
+            $0 == begin { in_block = 1 }
+            in_block    { print }
+            $0 == end   { in_block = 0 }
+        ' "$env_zshrc"
+        return
+    fi
+
+    cat <<BLOCK
 $MANAGED_BEGIN
 # Source all modular configs from ~/.zsh/
 for f in ~/.zsh/*.zsh(N); do
@@ -533,7 +859,13 @@ done
     source ~/.zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 $MANAGED_END
 BLOCK
-)
+}
+
+patch_zshrc() {
+    info "Checking ~/.zshrc configuration..."
+
+    local source_block
+    source_block="$(managed_zshrc_block)"
 
     # Case 1: ~/.zshrc doesn't exist yet
     if [[ ! -f "$ZSHRC" ]]; then
@@ -557,9 +889,14 @@ BLOCK
             $0 == end   { skip=0; next }
             !skip
         ' "$ZSHRC" > "$tmp"
-        echo "" >> "$tmp"
-        echo "$source_block" >> "$tmp"
-        mv "$tmp" "$ZSHRC"
+        # Drop blank lines left behind by the removed block so repeated runs
+        # do not keep adding whitespace, then separate with exactly one blank.
+        awk 'NF { last = NR } { line[NR] = $0 } END { for (i = 1; i <= last; i++) print line[i] }' \
+            "$tmp" > "$tmp.clean"
+        [[ -s "$tmp.clean" ]] && echo "" >> "$tmp.clean"
+        echo "$source_block" >> "$tmp.clean"
+        mv "$tmp.clean" "$ZSHRC"
+        rm -f "$tmp"
         return
     fi
 
@@ -571,13 +908,59 @@ BLOCK
 
     # Case 4: ~/.zshrc exists but does not source ~/.zsh modules yet
     info "Appending module sourcing block to ~/.zshrc"
-    echo "" >> "$ZSHRC"
-    echo "$source_block" >> "$ZSHRC"
+    local tmp
+    tmp=$(mktemp)
+    awk 'NF { last = NR } { line[NR] = $0 } END { for (i = 1; i <= last; i++) print line[i] }' \
+        "$ZSHRC" > "$tmp"
+    [[ -s "$tmp" ]] && echo "" >> "$tmp"
+    echo "$source_block" >> "$tmp"
+    mv "$tmp" "$ZSHRC"
 }
 
 # ---------------------------------------------------------------------------
-# 4. Extensions
+# Neovim editor block in ~/.zshrc (owned by Option 2)
 # ---------------------------------------------------------------------------
+# Kept in a separate managed block so re-running Option 1 (which rewrites its
+# own block) never removes the editor settings.
+patch_zshrc_editor() {
+    info "Configuring EDITOR/VISUAL in ~/.zshrc..."
+
+    local block
+    block="$(printf '%s\n%s\n%s\n%s' \
+        "$EDITOR_BEGIN" \
+        'export EDITOR=nvim' \
+        'export VISUAL=nvim' \
+        "$EDITOR_END")"
+
+    local tmp
+    tmp="$(mktemp)"
+
+    if grep -qF "$EDITOR_BEGIN" "$ZSHRC"; then
+        awk -v begin="$EDITOR_BEGIN" -v end="$EDITOR_END" '
+            $0 == begin { skip = 1; next }
+            $0 == end   { skip = 0; next }
+            !skip
+        ' "$ZSHRC" > "$tmp"
+    else
+        cp "$ZSHRC" "$tmp"
+    fi
+
+    # Drop trailing blank lines, then append exactly one blank line + block.
+    awk 'NF { last = NR } { line[NR] = $0 } END { for (i = 1; i <= last; i++) print line[i] }' \
+        "$tmp" > "$tmp.clean"
+    [[ -s "$tmp.clean" ]] && echo "" >> "$tmp.clean"
+    echo "$block" >> "$tmp.clean"
+
+    mv "$tmp.clean" "$ZSHRC"
+    rm -f "$tmp"
+
+    info "EDITOR/VISUAL block written to ~/.zshrc"
+}
+
+# ---------------------------------------------------------------------------
+# 4. Extensions (Option 4)
+# ---------------------------------------------------------------------------
+# Direct installers kept for the legacy --node / --php / --antigravity flags.
 install_node() {
     header "Installing Node.js"
     case "$ENV_NAME" in
@@ -594,12 +977,17 @@ install_php() {
     info "PHP installation completed: $(php --version 2>/dev/null | head -n1 || echo 'installed')"
 }
 
-install_antigravity() {
+install_antigravity_ext() {
     header "Installing Antigravity CLI"
+
+    if cmd_exists agy; then
+        info "Antigravity CLI — $(green "already installed") ($(agy --version 2>/dev/null || echo "installed"))"
+        return 0
+    fi
 
     case "$ENV_NAME" in
         termux)
-            info "Setting up Antigravity CLI for Termux (via wallentx/antigravity-cli-termux)..."
+            info "Installing via wallentx/antigravity-cli-termux (Termux native)..."
             info "Verifying glibc-repo and glibc dependencies..."
 
             if ! pkg list-installed 2>/dev/null | grep -q glibc-repo; then
@@ -612,93 +1000,448 @@ install_antigravity() {
                 pkg_install glibc
             fi
 
-            info "Running wallentx Antigravity installer..."
-            curl -fsSL https://raw.githubusercontent.com/wallentx/antigravity-cli-termux/dev/install.sh | bash
+            if ! curl -fsSL https://raw.githubusercontent.com/wallentx/antigravity-cli-termux/dev/install.sh | bash; then
+                err "Antigravity CLI installation failed."
+                return 1
+            fi
+            ;;
+        mac|linux)
+            # The wallentx installer is Termux-only. Linux (including
+            # proot-distro) and macOS use Google's official installer.
+            info "Installing via the official Antigravity CLI installer..."
+            if ! curl -fsSL https://antigravity.google/cli/install.sh | bash; then
+                err "Antigravity CLI installation failed."
+                return 1
+            fi
+            # The official installer writes to ~/.local/bin but does not add it
+            # to PATH. Make it usable for the rest of this run as well.
+            export PATH="$HOME/.local/bin:$PATH"
+            ;;
+    esac
+
+    if cmd_exists agy; then
+        info "Antigravity CLI installed: $(agy --version 2>/dev/null || echo "agy")"
+    else
+        warn "agy is not on PATH yet."
+        warn "Add ~/.local/bin to PATH (Linux/macOS) or open a new shell."
+    fi
+}
+
+install_opencode_ext() {
+    header "Installing OpenCode"
+
+    if [[ "$IS_PROOT_DISTRO" -ne 1 ]]; then
+        err "OpenCode is only supported inside a proot-distro container."
+        err "On Android, log in first: $(bold "proot-distro login <distro>")"
+        return 1
+    fi
+
+    if cmd_exists opencode; then
+        info "OpenCode — $(green "already installed") ($(opencode --version 2>/dev/null || echo "installed"))"
+        return 0
+    fi
+
+    info "Installing OpenCode v2 from the official installer..."
+    if ! curl -fsSL https://opencode.ai/v2/install | bash; then
+        err "OpenCode installation failed."
+        return 1
+    fi
+
+    export PATH="$HOME/.opencode/bin:$PATH"
+    if cmd_exists opencode; then
+        info "OpenCode installed: $(opencode --version 2>/dev/null || echo "opencode")"
+    else
+        warn "OpenCode was installed to ~/.opencode/bin but is not on PATH yet."
+        warn "Restart your shell to pick up the updated PATH."
+    fi
+}
+
+# Direct installer kept for the legacy --antigravity flag.
+install_antigravity() {
+    install_antigravity_ext || warn "Antigravity CLI installation did not complete."
+}
+
+# Each entry maps a friendly id to the package(s) that provide it. Package
+# names differ per environment, which is why the catalog is per-OS.
+ext_catalog() {
+    EXT_IDS=()
+    EXT_NAMES=()
+    EXT_DESCS=()
+    EXT_PKGS=()
+    EXT_GROUPS=()
+    EXT_SELECTED=()
+    EXT_INSTALLED=()
+    EXT_CUR=0
+    EXT_SCROLL=0
+
+    case "$ENV_NAME" in
+        linux)
+            EXT_IDS=(python node php go rust java build rg fd fzf jq tmux direnv gitlfs sqlite gh imagemagick ffmpeg)
+            EXT_NAMES=("Python" "Node.js" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "ImageMagick" "FFmpeg")
+            EXT_DESCS=("Python 3 + pip + venv" "Node.js + npm" "PHP runtime" "Go toolchain" "rustc + cargo" "Default JDK" "gcc, make, headers" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Image conversion" "Audio/video conversion")
+            EXT_PKGS=("python3 python3-pip python3-venv" "nodejs npm" "php" "golang" "rustc cargo" "default-jdk" "build-essential" "ripgrep" "fd-find" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite3" "gh" "imagemagick" "ffmpeg")
+            EXT_GROUPS=("Languages" "Languages" "Languages" "Languages" "Languages" "Languages" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools")
+            ;;
+        termux)
+            EXT_IDS=(python node php go rust java build rg fd fzf jq tmux direnv gitlfs sqlite gh imagemagick ffmpeg)
+            EXT_NAMES=("Python" "Node.js" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "ImageMagick" "FFmpeg")
+            EXT_DESCS=("Python + pip" "Node.js + npm" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK 17" "clang + make" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Image conversion" "Audio/video conversion")
+            EXT_PKGS=("python" "nodejs" "php" "golang" "rust" "openjdk-17" "clang make" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "imagemagick" "ffmpeg")
+            EXT_GROUPS=("Languages" "Languages" "Languages" "Languages" "Languages" "Languages" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools")
             ;;
         mac)
-            info "Checking Antigravity CLI for macOS..."
-            if cmd_exists agy; then
-                info "agy is already installed: $(agy --version 2>/dev/null || echo 'installed')"
-            else
-                info "Follow the official Antigravity CLI installation for macOS:"
-                info "Visit: https://github.com/google-deepmind/antigravity"
-            fi
+            EXT_IDS=(python node php go rust java build rg fd fzf jq tmux direnv gitlfs sqlite gh imagemagick ffmpeg)
+            EXT_NAMES=("Python" "Node.js" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "ImageMagick" "FFmpeg")
+            EXT_DESCS=("Python + pip" "Node.js + npm" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK" "make" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Image conversion" "Audio/video conversion")
+            EXT_PKGS=("python" "node" "php" "go" "rust" "openjdk" "make" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "imagemagick" "ffmpeg")
+            EXT_GROUPS=("Languages" "Languages" "Languages" "Languages" "Languages" "Languages" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools")
             ;;
-        linux)
-            info "Checking Antigravity CLI for Linux..."
-            if cmd_exists agy; then
-                info "agy is already installed."
-            else
-                info "Please install Antigravity CLI via standard package / binary release."
-            fi
-            ;;
+    esac
+
+    ext_catalog_ai_tools
+}
+
+# Tools installed by their own upstream installer instead of an OS package.
+# They still use empty EXT_PKGS entries so all catalog arrays stay aligned.
+ext_catalog_ai_tools() {
+    EXT_IDS+=(antigravity)
+    EXT_NAMES+=("Antigravity CLI")
+    EXT_DESCS+=("Google Antigravity coding agent")
+    EXT_PKGS+=("")
+    EXT_GROUPS+=("AI coding tools")
+
+    # OpenCode is only supported inside the Linux proot-distro container.
+    if [[ "$ENV_NAME" == "linux" ]]; then
+        EXT_IDS+=(opencode)
+        EXT_NAMES+=("OpenCode")
+        EXT_DESCS+=("AI coding agent (proot-distro only)")
+        EXT_PKGS+=("")
+        EXT_GROUPS+=("AI coding tools")
+    fi
+}
+
+# Return the custom installer function for an extension, or nothing.
+ext_installer_fn() {
+    case "$1" in
+        antigravity) echo "install_antigravity_ext" ;;
+        opencode)    echo "install_opencode_ext" ;;
+        *)           echo "" ;;
     esac
 }
 
-install_extensions_menu() {
-    header "Extensions Selection"
-
-    local -a ext_ids ext_names ext_descs
-
-    case "$ENV_NAME" in
-        termux)
-            ext_ids=(node php antigravity)
-            ext_names=("Node.js" "PHP" "Antigravity CLI")
-            ext_descs=(
-                "Node.js JavaScript runtime (via pkg)"
-                "PHP scripting engine (via pkg)"
-                "Antigravity CLI (wallentx/antigravity-cli-termux with glibc)"
-            )
-            ;;
-        mac)
-            ext_ids=(node php antigravity)
-            ext_names=("Node.js" "PHP" "Antigravity CLI")
-            ext_descs=(
-                "Node.js JavaScript runtime (via brew)"
-                "PHP scripting engine (via brew)"
-                "Antigravity CLI for macOS"
-            )
-            ;;
-        linux)
-            ext_ids=(node php antigravity)
-            ext_names=("Node.js" "PHP" "Antigravity CLI")
-            ext_descs=(
-                "Node.js JavaScript runtime"
-                "PHP scripting engine"
-                "Antigravity CLI"
-            )
-            ;;
+# Executable that proves a custom extension is already installed.
+ext_command() {
+    case "$1" in
+        antigravity) echo "agy" ;;
+        opencode)    echo "opencode" ;;
+        *)           echo "" ;;
     esac
+}
 
-    echo "  Select extensions to install (space-separated numbers, 'a' for all, 'n' to skip):"
+ext_index() {
+    local id="$1" i
+    for i in "${!EXT_IDS[@]}"; do
+        if [[ "${EXT_IDS[$i]}" == "$id" ]]; then
+            echo "$i"
+            return 0
+        fi
+    done
+    return 1
+}
+
+ext_installed() {
+    local idx="$1" pkg cmd
+    # OpenCode is unsupported outside proot-distro, even if a binary happens
+    # to exist on PATH; don't advertise it as an available extension there.
+    if [[ "${EXT_IDS[$idx]}" == "opencode" && "$IS_PROOT_DISTRO" -ne 1 ]]; then
+        return 1
+    fi
+    cmd="$(ext_command "${EXT_IDS[$idx]}")"
+    if [[ -n "$cmd" ]]; then
+        cmd_exists "$cmd"
+        return
+    fi
+    [[ -n "${EXT_PKGS[$idx]}" ]] || return 1
+    for pkg in ${EXT_PKGS[$idx]}; do
+        pkg_installed "$pkg" || return 1
+    done
+    return 0
+}
+
+install_ext_ids() {
+    local id idx pkg fn
+    for id in "$@"; do
+        if ! idx="$(ext_index "$id")"; then
+            warn "Unknown extension: $id"
+            continue
+        fi
+
+        fn="$(ext_installer_fn "$id")"
+        if [[ -n "$fn" ]]; then
+            if ! "$fn"; then
+                return 1
+            fi
+            continue
+        fi
+
+        if ext_installed "$idx"; then
+            info "${EXT_NAMES[$idx]} — $(green "already installed")"
+            continue
+        fi
+
+        header "Extension: ${EXT_NAMES[$idx]}"
+        for pkg in ${EXT_PKGS[$idx]}; do
+            pkg_ensure "$pkg"
+        done
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Extension picker
+# ---------------------------------------------------------------------------
+# Interactive multi-select TUI, modeled on the clean-up scripts:
+#   ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install · q skip
+# When stdin/stdout is not a terminal (pipes, CI, `</dev/null`) it falls back to
+# a numbered prompt so automation keeps working.
+ext_tui_cleanup() {
+    printf '\033[?25h'
+    stty echo 2>/dev/null || true
+}
+
+ext_selected_count() {
+    local i count=0
+    for i in "${!EXT_IDS[@]}"; do
+        [[ "${EXT_SELECTED[$i]:-0}" -eq 1 ]] && count=$((count + 1))
+    done
+    echo "$count"
+}
+
+ext_draw_tui() {
+    local lines max_rows i start end last_group mark state count
+
+    lines="$(tput lines 2>/dev/null || echo 24)"
+    max_rows=$((lines - 13))
+    (( max_rows < 4 )) && max_rows=4
+    (( max_rows > ${#EXT_IDS[@]} )) && max_rows=${#EXT_IDS[@]}
+
+    if (( EXT_CUR < EXT_SCROLL )); then
+        EXT_SCROLL=$EXT_CUR
+    elif (( EXT_CUR >= EXT_SCROLL + max_rows )); then
+        EXT_SCROLL=$((EXT_CUR - max_rows + 1))
+    fi
+
+    printf '\033[H\033[J'
+    printf '  %s\n' "$(bold "Shell-Setup Extensions")"
+    printf '  %s\n\n' "$(dim "Space toggles selections, Enter installs the selected tools.")"
+
+    start=$EXT_SCROLL
+    end=$((EXT_SCROLL + max_rows - 1))
+    (( end >= ${#EXT_IDS[@]} )) && end=$(( ${#EXT_IDS[@]} - 1 ))
+
+    last_group=""
+    for ((i = start; i <= end; i++)); do
+        if [[ "${EXT_GROUPS[$i]}" != "$last_group" ]]; then
+            last_group="${EXT_GROUPS[$i]}"
+            printf '      %s\n' "$(bold "$last_group")"
+        fi
+
+        mark="[ ]"
+        [[ "${EXT_SELECTED[$i]}" -eq 1 ]] && mark="$(green "[x]")"
+
+        state=""
+        [[ "${EXT_INSTALLED[$i]}" -eq 1 ]] && state=" $(dim "[installed]")"
+
+        if (( i == EXT_CUR )); then
+            printf '  %s %s %-14s %s%s\n' \
+                "$(cyan "❯")" "$mark" "${EXT_NAMES[$i]}" "$(dim "${EXT_DESCS[$i]}")" "$state"
+        else
+            printf '    %s %-14s %s%s\n' \
+                "$mark" "${EXT_NAMES[$i]}" "$(dim "${EXT_DESCS[$i]}")" "$state"
+        fi
+    done
+
+    count="$(ext_selected_count)"
+    printf '\n  %s selected' "$(bold "$count")"
+    if (( ${#EXT_IDS[@]} > max_rows )); then
+        printf '   %s' "$(dim "[$((EXT_SCROLL + 1))-$((end + 1)) of ${#EXT_IDS[@]}]")"
+    fi
+    printf '\n  %s\n' "$(dim "↑/↓ move · Space toggle · a all/none · i invert · Enter install · q skip")"
+}
+
+# Returns 0 when the user confirmed, 1 when they cancelled or hit EOF.
+ext_select_tui() {
+    local key c1 c2 i any rc=0
+
+    stty -echo 2>/dev/null || true
+    printf '\033[?25l'
+    trap 'ext_tui_cleanup; exit 130' INT TERM
+
+    while :; do
+        ext_draw_tui
+
+        if ! IFS= read -rsn1 key; then
+            rc=1
+            break
+        fi
+
+        if [[ "$key" == $'\033' ]]; then
+            read -rsn1 -t 1 c1 2>/dev/null || c1=""
+            if [[ "$c1" == "[" || "$c1" == "O" ]]; then
+                read -rsn1 -t 1 c2 2>/dev/null || c2=""
+                key="$key$c1$c2"
+            elif [[ -n "$c1" ]]; then
+                key="$key$c1"
+            fi
+        fi
+
+        case "$key" in
+            $'\033[A'|$'\033OA'|k|K)
+                EXT_CUR=$((EXT_CUR - 1))
+                (( EXT_CUR < 0 )) && EXT_CUR=$(( ${#EXT_IDS[@]} - 1 ))
+                ;;
+            $'\033[B'|$'\033OB'|j|J)
+                EXT_CUR=$((EXT_CUR + 1))
+                (( EXT_CUR >= ${#EXT_IDS[@]} )) && EXT_CUR=0
+                ;;
+            ' ')
+                if [[ "${EXT_SELECTED[$EXT_CUR]}" -eq 1 ]]; then
+                    EXT_SELECTED[$EXT_CUR]=0
+                else
+                    EXT_SELECTED[$EXT_CUR]=1
+                fi
+                ;;
+            a|A)
+                # Select all when anything is unselected, otherwise clear all.
+                any=0
+                for i in "${!EXT_IDS[@]}"; do
+                    [[ "${EXT_SELECTED[$i]}" -eq 0 ]] && any=1
+                done
+                for i in "${!EXT_IDS[@]}"; do
+                    EXT_SELECTED[$i]=$any
+                done
+                ;;
+            i|I)
+                for i in "${!EXT_IDS[@]}"; do
+                    if [[ "${EXT_SELECTED[$i]}" -eq 1 ]]; then
+                        EXT_SELECTED[$i]=0
+                    else
+                        EXT_SELECTED[$i]=1
+                    fi
+                done
+                ;;
+            q|Q|$'\033')
+                rc=1
+                break
+                ;;
+            '')
+                break
+                ;;
+        esac
+    done
+
+    ext_tui_cleanup
+    printf '\033[H\033[J'
+    trap - INT TERM
+    return "$rc"
+}
+
+# Line-based picker used when stdin/stdout is not a terminal.
+ext_select_prompt() {
+    echo "  Select what to install (space-separated numbers, 'a' for all, 'n' to skip):"
     echo
-    for i in "${!ext_ids[@]}"; do
-        printf "    %d) %-18s — %s\n" "$((i+1))" "${ext_names[$i]}" "${ext_descs[$i]}"
+
+    local last_group="" i state
+    for i in "${!EXT_IDS[@]}"; do
+        if [[ "${EXT_GROUPS[$i]}" != "$last_group" ]]; then
+            last_group="${EXT_GROUPS[$i]}"
+            echo "  $(bold "$last_group")"
+        fi
+        state=""
+        [[ "${EXT_INSTALLED[$i]}" -eq 1 ]] && state=" $(dim "[installed]")"
+        printf "    %2d) %-14s — %s%s\n" "$((i + 1))" "${EXT_NAMES[$i]}" "${EXT_DESCS[$i]}" "$state"
     done
     echo
 
     local selection
-    read -r -p "  Choose: " selection
-
-    [[ "$selection" == "n" || -z "$selection" ]] && { info "Skipping extensions."; return; }
-
-    local -a selected_indices=()
-    if [[ "$selection" == "a" ]]; then
-        selected_indices=("${!ext_ids[@]}")
-    else
-        for s in $selection; do
-            selected_indices+=("$((s-1))")
-        done
+    if ! read -r -p "  Choose: " selection; then
+        return 1
+    fi
+    if [[ -z "$selection" ]]; then
+        return 1
+    fi
+    if [[ "$selection" == [nN] ]]; then
+        return 1
     fi
 
-    for idx in "${selected_indices[@]}"; do
-        local ext="${ext_ids[$idx]}"
-        case "$ext" in
-            node)        install_node ;;
-            php)         install_php ;;
-            antigravity) install_antigravity ;;
-        esac
+    if [[ "$selection" == [aA] ]]; then
+        for i in "${!EXT_IDS[@]}"; do
+            EXT_SELECTED[$i]=1
+        done
+        return 0
+    fi
+
+    local s
+    for s in $selection; do
+        if [[ ! "$s" =~ ^[0-9]+$ ]]; then
+            warn "Ignoring invalid choice: $s"
+            continue
+        fi
+        if ((s >= 1 && s <= ${#EXT_IDS[@]})); then
+            EXT_SELECTED[$((s - 1))]=1
+        else
+            warn "Ignoring out-of-range choice: $s"
+        fi
     done
+    return 0
+}
+
+install_extensions_menu() {
+    header "Extensions"
+
+    ext_catalog
+
+    # Cache installed state once: drawing must not shell out to dpkg per keypress.
+    local i
+    for i in "${!EXT_IDS[@]}"; do
+        EXT_SELECTED[$i]=0
+        if ext_installed "$i"; then
+            EXT_INSTALLED[$i]=1
+        else
+            EXT_INSTALLED[$i]=0
+        fi
+    done
+
+    if [[ -t 0 && -t 1 ]]; then
+        if ! ext_select_tui; then
+            info "Skipping extensions."
+            return 0
+        fi
+    else
+        if ! ext_select_prompt; then
+            info "Skipping extensions."
+            return 0
+        fi
+    fi
+
+    local -a chosen=()
+    for i in "${!EXT_IDS[@]}"; do
+        [[ "${EXT_SELECTED[$i]}" -eq 1 ]] && chosen+=("${EXT_IDS[$i]}")
+    done
+
+    if [[ ${#chosen[@]} -eq 0 ]]; then
+        info "Nothing selected."
+        return 0
+    fi
+
+    echo
+    info "Selected: $(bold "${chosen[*]}")"
+
+    install_ext_ids "${chosen[@]}"
+}
+
+# Backward-compatible entry point used by --extensions.
+install_extensions() {
+    install_extensions_menu
 }
 
 # ---------------------------------------------------------------------------
@@ -738,51 +1481,38 @@ setup_git_submodule_aliases() {
 setup_git_accounts() {
     header "Git Multi-Account Setup"
 
-    local custom_script="$REPO_DIR/zsh/customizeGit.bash"
+    local custom_script="$HOME/.zsh/customizeGit.bash"
     if [[ ! -f "$custom_script" ]]; then
-        custom_script="$HOME/.zsh/customizeGit.bash"
+        custom_script="$REPO_DIR/zsh/customizeGit.bash"
     fi
 
     if [[ -f "$custom_script" ]]; then
         bash "$custom_script"
     else
-        warn "customizeGit.bash not found."
+        warn "customizeGit.bash not found. Run Option 3 (Git accounts & SSH) first."
     fi
 }
 
 # ---------------------------------------------------------------------------
 # 6. SSH Key & Git Signing Setup
 # ---------------------------------------------------------------------------
+# Files are installed by install_ssh_files(); this function only runs the
+# interactive helper, which now starts with an audit of existing keys.
 setup_ssh() {
     header "SSH Key & Git Signing Setup"
 
-    local ssh_dir="$HOME/.ssh"
-    mkdir -p "$ssh_dir"
-    chmod 700 "$ssh_dir"
+    install_ssh_files
 
-    # Copy setup helper script to ~/.ssh/setup.bash
-    if [[ -f "$REPO_DIR/.ssh/setup.bash" ]]; then
-        info "Installing SSH setup helper → ~/.ssh/setup.bash"
-        cp "$REPO_DIR/.ssh/setup.bash" "$ssh_dir/setup.bash"
-        chmod 755 "$ssh_dir/setup.bash"
+    if [[ ! -f "$HOME/.ssh/setup.bash" ]]; then
+        err "~/.ssh/setup.bash not found."
+        return 1
     fi
 
-    # Copy initial ~/.ssh/config if not already present
-    if [[ -f "$REPO_DIR/.ssh/config" && ! -f "$ssh_dir/config" ]]; then
-        info "Installing initial SSH config → ~/.ssh/config"
-        cp "$REPO_DIR/.ssh/config" "$ssh_dir/config"
-        chmod 600 "$ssh_dir/config"
-    fi
-
-    if confirm "  Would you like to manage/configure Git accounts first (customizeGit)?"; then
-        setup_git_accounts
-    fi
-
-    if confirm "  Would you like to run the interactive SSH key setup now?"; then
-        bash "$ssh_dir/setup.bash"
+    if confirm "  Run the interactive SSH key setup now?" y; then
+        bash "$HOME/.ssh/setup.bash"
     else
         info "Skipped SSH key generation."
-        info "You can run it anytime with: $(bold "ssh-setup") (or $(bold "bash ~/.ssh/setup.bash"))"
+        info "You can run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
     fi
 }
 
@@ -792,58 +1522,42 @@ setup_ssh() {
 interactive_menu() {
     header "Shell-Setup Installer ($ENV_NAME)"
 
-    echo "  What would you like to do?"
+    echo "  What would you like to set up?"
     echo
-    echo "    1) Full install      — zsh + essentials + modules + gitconfig + ssh setup"
-    echo "    2) Install zsh       — install zsh & set as default shell"
-    echo "    3) Essentials        — install essentials (git, neovim, which, etc.)"
-    echo "    4) Modules only      — copy modular configs, base config & configure ~/.zshrc"
-    echo "    5) Git & SSH Setup   — configure ~/.gitconfig and setup SSH keys / signing"
-    echo "    6) Git Accounts      — manage multi-account Git functions & wrappers (customizeGit.bash)"
-    echo "    7) Extensions        — install optional extras (Node.js, PHP, Antigravity)"
-    echo "    8) Git aliases       — install or update unified git aliases & submodule shortcuts"
-    echo "    9) Everything        — full install + all extensions + SSH setup"
+    echo "    1) Shell environment   — Zsh, aliases, plugins, ~/.zshrc"
+    echo "    2) Neovim editor       — config, EDITOR/VISUAL, git core.editor"
+    echo "    3) Git accounts & SSH  — audit keys, signing, clone wrappers"
+    echo "    4) Extensions          — multi-select languages and CLI tools"
+    echo "    5) Everything          — run 1 → 2 → 3 → 4"
     echo "    q) Quit"
     echo
 
     local choice
-    read -r -p "  Choose [1-9/q]: " choice
+    if ! read -r -p "  Choose [1-5/q]: " choice; then
+        echo "  Exiting."
+        exit 0
+    fi
 
     case "$choice" in
         1)
-            install_zsh
-            install_essentials
-            install_modules
-            setup_ssh
+            SHELL_OFFER_NVIM=1
+            install_shell
             ;;
         2)
-            install_zsh
+            install_nvim
             ;;
         3)
-            install_essentials
+            install_git_ssh
             ;;
         4)
-            install_modules
+            install_extensions_menu
             ;;
         5)
-            setup_gitconfig
-            setup_ssh
-            ;;
-        6)
-            setup_git_accounts
-            ;;
-        7)
+            SHELL_OFFER_NVIM=0
+            install_shell
+            install_nvim
+            install_git_ssh
             install_extensions_menu
-            ;;
-        8)
-            setup_git_aliases
-            ;;
-        9)
-            install_zsh
-            install_essentials
-            install_modules
-            install_extensions_menu
-            setup_ssh
             ;;
         q|Q)
             echo "  Exiting."
@@ -864,29 +1578,42 @@ show_help() {
 $(bold "Shell-Setup Universal Installer")
 
 Usage: ./install.bash [OPTIONS]
+       curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash
 
-Workflow options:
-  --all           Full install (zsh + essentials + modules + gitconfig + ssh)
-  --modules       Copy zsh modules, base.bash, .config, .termux & patch ~/.zshrc
-  --essentials    Install essential packages (git, neovim, mandoc, which, tree)
-  --zsh           Install zsh & set as default shell
-  --ssh           Run interactive SSH & Git commit signing setup
-  --gitconfig     Configure global Git config (~/.gitconfig & allowed_signers)
-  --git-accounts  Manage multi-account Git configurations (customizeGit.bash)
-  --git-aliases   Install or update unified git aliases & submodule shortcuts
-  --submodules    Alias for --git-aliases (integrated)
-  --extensions    Interactive picker for extensions (Node, PHP, Antigravity)
-  --everything    Install all components including extensions and SSH setup
+Modules:
+  --shell         Option 1 — Zsh, aliases, git aliases, plugin, ~/.zshrc
+  --nvim          Option 2 — Neovim config, EDITOR/VISUAL, core.editor
+  --git           Option 3 — Git accounts, SSH key audit/setup, wrappers
+  --ext [LIST]    Option 4 — multi-select picker, or comma-separated ids
+                  (e.g. --ext python,node,antigravity)
+                  AI tools: antigravity (agy), opencode (proot-distro only)
+  --all           Options 1 + 2 + 3
+  --everything    Options 1 + 2 + 3 + 4
+
+Extension picker keys (Option 4 / --ext without a list):
+  ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install · q skip
+  (pipes and </dev/null fall back to a numbered prompt)
+
+Legacy options (still supported):
+  --modules       Copy shell configs only (no packages, no default-shell change)
+  --essentials    Install the union of module dependencies + recommended tools
+  --zsh           Install zsh and set it as the default shell
+  --ssh           Alias for --git
+  --gitconfig     Only write ~/.gitconfig and allowed_signers
+  --git-accounts  Only run customizeGit.bash
+  --git-aliases   Install or update unified git aliases (alias: --submodules)
+  --extensions    Alias for --ext (interactive)
+  --node          Install Node.js
+  --php           Install PHP
+  --antigravity   Install Antigravity CLI
   --help, -h      Show this help message
 
-Direct extension flags:
-  --node          Install Node.js runtime
-  --php           Install PHP engine
-  --antigravity   Install Antigravity CLI
+When run without arguments, launches the interactive menu.
 
-When run without arguments, launches the interactive selection menu.
+Recommended CLI tools (tree, which, man, less, curl, wget, unzip, file) are
+optional: Option 1 lists what breaks without them and defaults to "no".
 
-Supported Environments:
+Supported environments:
   • Termux (Android)
   • macOS (Homebrew)
   • Linux — Debian / Ubuntu (apt), including proot-distro containers
@@ -904,15 +1631,49 @@ main() {
     else
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --shell)
+                    SHELL_OFFER_NVIM=1
+                    install_shell
+                    shift
+                    ;;
+                --nvim)
+                    install_nvim
+                    shift
+                    ;;
+                --git)
+                    install_git_ssh
+                    shift
+                    ;;
+                --ext)
+                    shift
+                    if [[ $# -gt 0 && "$1" != -* ]]; then
+                        local ext_list
+                        ext_list="$(echo "$1" | tr ',' ' ')"
+                        ext_catalog
+                        # shellcheck disable=SC2086
+                        install_ext_ids $ext_list
+                        shift
+                    else
+                        install_extensions_menu
+                    fi
+                    ;;
                 --all)
-                    install_zsh
-                    install_essentials
-                    install_modules
-                    setup_ssh
+                    SHELL_OFFER_NVIM=0
+                    install_shell
+                    install_nvim
+                    install_git_ssh
+                    shift
+                    ;;
+                --everything)
+                    SHELL_OFFER_NVIM=0
+                    install_shell
+                    install_nvim
+                    install_git_ssh
+                    install_extensions_menu
                     shift
                     ;;
                 --modules)
-                    install_modules
+                    install_shell_configs
                     shift
                     ;;
                 --essentials)
@@ -924,7 +1685,7 @@ main() {
                     shift
                     ;;
                 --ssh)
-                    setup_ssh
+                    install_git_ssh
                     shift
                     ;;
                 --gitconfig)
@@ -953,14 +1714,6 @@ main() {
                     ;;
                 --antigravity)
                     install_antigravity
-                    shift
-                    ;;
-                --everything)
-                    install_zsh
-                    install_essentials
-                    install_modules
-                    install_extensions_menu
-                    setup_ssh
                     shift
                     ;;
                 --help|-h)

@@ -39,13 +39,12 @@ cd ~/Shell-Setup/
 
 This automates:
 - Copying the slim, modular `.zshrc` into `~/.zshrc`
-- Copying modular config files from root `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-custom.zsh`, `prompt.zsh`) to `~/.zsh/`
+- Copying modular config files from root `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-functions.zsh`, `prompt.zsh`) to `~/.zsh/`
 - Copying Termux base shortcuts (`Termux/base.bash`) to `~/.zsh/base.zsh`
 - Installing `zsh-syntax-highlighting` into `~/.zsh/plugins/` (if not already present)
-- Copying shared configuration from `.config/` (including Neovim configuration in `.config/nvim/`) to `~/.config/`
 - Copying Termux terminal settings and styling from `Termux/.termux/` to `~/.termux/`
-- Setting up global Git configurations (`~/.gitconfig` & `~/.config/git/allowed_signers`)
-- Installing SSH setup helper to `~/.ssh/setup.bash` (callable with alias `ssh-setup`)
+- Installing the Neovim configuration from `.config/nvim/` to `~/.config/nvim/` **only when Option 2 is selected**
+- Setting up global Git configurations (`~/.gitconfig` & `~/.config/git/allowed_signers`) and SSH files **only when Option 3 is selected**
 
 ---
 

@@ -1,18 +1,3 @@
-# >>> Completion >>>
-fpath=(
-    $PREFIX/share/zsh/site-functions
-    $fpath
-)
-
-autoload -Uz compinit
-compinit
-
-zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|=*' 'l:|=* r:|=*'
-
-# >>> Exports >>>
-export EDITOR=nvim
-export VISUAL=nvim
-
 # Git-aware prompt
 git_prompt() {
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return

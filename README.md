@@ -4,17 +4,39 @@ A modular, cross-platform Zsh and development environment configuration for **Te
 
 ## Features
 
-- **Root Modular Zsh**: Core shell modules are centrally maintained in `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-custom.zsh`, `prompt.zsh`), copied to `~/.zsh/`, and sourced dynamically by `~/.zshrc`.
+- **Four selectable modules**: Shell environment, Neovim, Git accounts & SSH, and Extensions. Install only what you need; each module is self-sufficient.
+- **Modular Zsh**: Core shell modules are maintained in `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-functions.zsh`, `prompt.zsh`), copied to `~/.zsh/`, and sourced dynamically by `~/.zshrc`.
 - **Environment Base Configs**: Platform-specific shortcuts (`base.bash`) installed as `~/.zsh/base.zsh` (e.g., Homebrew aliases on macOS, pkg/storage aliases on Termux, sudo-aware apt aliases on Ubuntu/Debian).
-- **Universal Neovim Setup**: Complete, modern Neovim configuration maintained in `.config/nvim/` and safely installed directly into `~/.config/nvim`.
+- **Neovim as the default editor**: Config from `.config/nvim/` is installed to `~/.config/nvim`, with an `EDITOR`/`VISUAL` block appended to `~/.zshrc` and `git core.editor` set. Owned exclusively by Option 2.
 - **Unified Git Utilities & Submodule Shortcuts**: Comprehensive Git aliases and submodule commands merged into `zsh/git-aliases.zsh` with descriptions, example usages, safety indicators (`[DESTRUCTIVE]`), and auto-resetting author overrides (`gcase`).
-- **Interactive SSH & Git Commit Signing Setup**: Automated SSH key generator (`.ssh/setup.bash` or `ssh-setup` alias) supporting Auth keys, Signing keys, or Both, automatic `allowed_signers` setup, and clipboard integration for GitHub.
-- **System Cleanup & Storage Inspection**: Tailored storage usage inspection aliases (`hdu`, `pdu`, `sdu`, etc.) and cache cleanup scripts for both macOS (`Mac/clean-up.bash`, `Mac/chrclean.sh`) and Termux (`Termux/clean-up.bash`).
-- **Universal Installer**: Auto-detects your environment and installs packages, configs, plugins, and optional extensions.
+- **Git accounts without leaking data**: `customizeGit.bash` writes accounts and generated wrappers only under `$HOME`. The repository ships no usernames, emails, or private wrappers.
+- **SSH key audit**: existing keys in `~/.ssh` are inspected and can be mapped to a Git account or to commit signing without regenerating them. New `ed25519` keys, `allowed_signers`, and host aliases are handled by `ssh-setup`.
+- **Selectable extensions**: a multi-select picker (Space to toggle, Enter to install) for individual languages (Python, Node.js, PHP, Go, Rust, Java), CLI tooling (ripgrep, fd, fzf, jq, tmux, gh, …), and AI coding tools (Antigravity, plus OpenCode inside proot-distro) instead of everything at once.
+- **System Cleanup & Storage Inspection**: Tailored storage usage inspection aliases (`hdu`, `pdu`, `sdu`, etc.) and cache cleanup scripts for macOS (`Mac/clean-up.bash`, `Mac/chrclean.sh`) and Termux (`Termux/clean-up.bash`).
 
 ---
 
 ## Quick Start
+
+### One-liner (no clone required)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash
+```
+
+The script downloads the current `main` tarball to a temporary directory,
+re-runs the installer from there, and removes it afterwards. It attaches the
+controlling terminal, so the interactive menu and the extension picker work
+even though stdin is a pipe.
+
+Pass flags with `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash \
+  | bash -s -- --all
+```
+
+### From a clone
 
 Run the universal installer from the repository root:
 
@@ -26,20 +48,31 @@ cd ~/Shell-Setup
 Running without arguments launches an interactive menu:
 
 ```text
-=== Shell-Setup Installer (termux) ===
+=== Shell-Setup Installer (linux) ===
 
-  What would you like to do?
+  What would you like to set up?
 
-    1) Full install      — zsh + essentials + modules + gitconfig + ssh setup
-    2) Install zsh       — install zsh & set as default shell
-    3) Essentials        — install essentials (git, neovim, which, etc.)
-    4) Modules only      — copy modular configs, base config & configure ~/.zshrc
-    5) Git & SSH Setup   — configure ~/.gitconfig and setup SSH keys / signing
-    6) Extensions        — install optional extras (Node.js, PHP, Antigravity)
-    7) Git aliases       — install or update unified git aliases & submodule shortcuts
-    8) Everything        — full install + all extensions + SSH setup
+    1) Shell environment   — Zsh, aliases, plugins, ~/.zshrc (offers Neovim)
+    2) Neovim editor       — config, EDITOR/VISUAL, git core.editor
+    3) Git accounts & SSH  — audit keys, signing, clone wrappers
+    4) Extensions          — multi-select languages and CLI tools
+    5) Everything          — run 1 → 2 → 3 → 4
     q) Quit
 ```
+
+### What each module installs
+
+| Option | Packages | Files |
+|---|---|---|
+| 1. Shell | `zsh`, `git`, `ca-certificates`; optional QoL tools | `zsh/*.zsh` → `~/.zsh/`, `base.bash` → `~/.zsh/base.zsh`, `ENV/.zshrc` → `~/.zshrc`, syntax-highlighting plugin |
+| 2. Neovim | `neovim` | `.config/nvim/` → `~/.config/nvim/`, editor block in `~/.zshrc`, `git core.editor` |
+| 3. Git & SSH | `openssh-client` (Linux) | `~/.ssh/config`, `~/.ssh/setup.bash`, `~/.config/git/accountList`, `~/.zsh/git-functions.zsh`, generated `~/.zsh/git-custom.zsh` |
+| 4. Extensions | selected only | none |
+
+**Essentials are not a separate option.** Each module installs the packages it
+needs. The recommended CLI tools (`tree`, `which`, `man`, `less`, `curl`,
+`wget`, `unzip`, `file`, `ps`) are offered at the end of Option 1, defaulting to
+**no**, and the installer lists exactly which features will not work if skipped.
 
 ### Android proot-distro (Ubuntu or Debian)
 
@@ -53,7 +86,9 @@ proot-distro login ubuntu          # or: proot-distro login debian
 # Inside the container:
 git clone https://github.com/<your-user>/Shell-Setup.git
 cd Shell-Setup
-./install.bash --all
+./install.bash            # interactive: pick modules
+# or
+./install.bash --all      # Shell + Neovim + Git/SSH
 ```
 
 The installer detects the proot container, clears inherited Termux/Android
@@ -63,23 +98,75 @@ is root; on a normal Debian/Ubuntu desktop the installer uses `sudo` when needed
 
 ### Command-Line Flags
 
-For automated or non-interactive setups:
+```bash
+# Modules
+./install.bash --shell            # Option 1 (offers Option 2 at the end)
+./install.bash --nvim             # Option 2
+./install.bash --git              # Option 3
+./install.bash --ext              # Option 4 (interactive picker)
+./install.bash --ext python,node,ripgrep   # Option 4 (non-interactive)
+./install.bash --ext antigravity  # Antigravity CLI (agy)
+./install.bash --ext opencode     # OpenCode (proot-distro only)
+./install.bash --all              # Options 1 + 2 + 3
+./install.bash --everything       # Options 1 + 2 + 3 + 4
+
+# Legacy flags (still supported)
+./install.bash --modules          # Copy shell configs only (no packages, no chsh)
+./install.bash --essentials       # Union of module dependencies + QoL tools
+./install.bash --zsh              # Install zsh and set it as default shell
+./install.bash --ssh              # Alias for --git
+./install.bash --gitconfig        # Only write ~/.gitconfig and allowed_signers
+./install.bash --git-accounts     # Only run customizeGit.bash
+./install.bash --git-aliases      # Only install/update unified git aliases
+./install.bash --extensions       # Alias for --ext
+./install.bash --node --php --antigravity
+./install.bash --help             # Show help message
+```
+
+### Extension picker keys
+
+Option 4 (`--ext` without a list) opens the same style of multi-select UI as
+the cleanup scripts in `Mac/` and `Termux/`:
+
+```text
+↑/↓ or j/k   move the cursor
+Space        toggle the highlighted tool
+a            select all (or clear all when everything is selected)
+i            invert the selection
+Enter        install the selected tools
+q or Esc     skip extensions
+```
+
+Already-installed tools are marked `[installed]` and can still be selected to
+re-check them. When stdin is not a terminal (pipes, `</dev/null`, CI), the
+picker falls back to the numbered prompt: space-separated numbers, `a` for all,
+`n` to skip.
+
+### AI coding tools
+
+The picker includes an **AI coding tools** group:
+
+| Tool | Availability | Installer |
+|---|---|---|
+| **Antigravity CLI** (`agy`) | Termux, Linux (including proot-distro), macOS | Termux uses [wallentx/antigravity-cli-termux](https://github.com/wallentx/antigravity-cli-termux); Linux/macOS use the official `https://antigravity.google/cli/install.sh` |
+| **OpenCode** (`opencode`) | **Linux proot-distro only** | Official v2 installer: `https://opencode.ai/v2/install` |
+
+Antigravity on Termux installs the `glibc-repo`/`glibc` dependencies first. On
+Linux and macOS the official installer places `agy` in `~/.local/bin` (make
+sure that directory is on your `PATH`).
+
+OpenCode is listed only inside the Linux catalog because it is supported only
+when running in a proot-distro container. The installer checks for the
+proot-distro environment and stops with an error anywhere else; from Termux,
+log in to the container first:
 
 ```bash
-./install.bash --all          # Full installation (zsh + essentials + modules + gitconfig + ssh)
-./install.bash --modules      # Only copy modules, base.bash, .config, .termux, patch ~/.zshrc
-./install.bash --essentials   # Only install essential packages
-./install.bash --zsh          # Only install zsh and set as default shell
-./install.bash --ssh          # Run interactive SSH & Git commit signing setup
-./install.bash --gitconfig    # Configure global Git config (~/.gitconfig & allowed_signers)
-./install.bash --git-aliases  # Install or update unified git aliases & submodule shortcuts
-./install.bash --extensions   # Interactive extension picker
-./install.bash --node         # Install Node.js
-./install.bash --php          # Install PHP
-./install.bash --antigravity  # Install Antigravity CLI
-./install.bash --everything   # Full setup including extensions and SSH setup
-./install.bash --help         # Show help message
+proot-distro login ubuntu      # or: proot-distro login debian
+curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash -s -- --ext opencode
 ```
+
+The OpenCode installer writes `~/.opencode/bin` and adds it to your shell
+configuration. Restart the shell (or `source ~/.zshrc`) afterwards.
 
 ---
 
@@ -87,8 +174,8 @@ For automated or non-interactive setups:
 
 ```text
 Shell-Setup/
-├── .config/                    # Shared configurations (safely installed to ~/.config/)
-│   ├── git/                    # Git account list template
+├── .config/                    # Shared configurations (installed only by their module)
+│   ├── git/                    # Account list template (no real accounts)
 │   │   └── accountList
 │   └── nvim/                   # Universal Neovim configuration (installed to ~/.config/nvim)
 │       ├── init.lua
@@ -98,19 +185,20 @@ Shell-Setup/
 │       └── lua/
 │           ├── config/         # LSP and autocompletion configs
 │           └── plugins/        # Plugin definitions managed by lazy.nvim
-├── .gitconfig                  # Global Git config template (SSH signing & nvim editor)
+├── .gitconfig                  # Global Git config template (SSH allowed signers)
 ├── .gitignore
 ├── install.bash                # Root universal installer
 ├── nvim-cheatsheet.md          # Neovim keymaps reference
 ├── README.md                   # Main documentation
 ├── .ssh/
 │   ├── config                  # Sample SSH host config (multi-account mapping)
-│   ├── setup.bash              # Interactive SSH key generator & Git signing setup
+│   ├── setup.bash              # Key audit, generator & Git signing setup
 │   └── README.md               # Detailed SSH and signing guide
 ├── zsh/                        # Universal Zsh configuration modules (installed to ~/.zsh/)
 │   ├── aliases.zsh             # General shell aliases & ssh-setup shortcut
 │   ├── git-aliases.zsh         # Unified Git & submodule aliases with safety indicators
-│   ├── git-custom.zsh          # Multi-account Git clone helpers (gClone, qiuGClone, triGClone)
+│   ├── git-functions.zsh       # Generic gClone / reset_vConfig helpers (no accounts)
+│   ├── customizeGit.bash       # Generates ~/.zsh/git-custom.zsh from your account list
 │   └── prompt.zsh              # Dynamic Git-aware prompt
 ├── Mac/
 │   ├── base.bash               # macOS-specific aliases (Homebrew: bcu, bcc)
@@ -118,7 +206,8 @@ Shell-Setup/
 │   ├── .zshrc                  # Modular macOS .zshrc
 │   └── README.md               # macOS guide
 ├── Linux/
-│   └── base.bash               # Ubuntu/Debian (and proot-distro) apt aliases
+│   ├── base.bash               # Ubuntu/Debian (and proot-distro) apt aliases
+│   └── .zshrc                  # Modular Linux .zshrc (history, completion, modules)
 └── Termux/
     ├── base.bash               # Termux-specific aliases (pkgup, pkgin, storage shortcuts)
     ├── clean-up.bash           # Unified Termux smart cleanup editor & storage analysis
@@ -191,12 +280,14 @@ custom-git
 
 ### Features
 1. **Interactive TUI**: View all configured accounts, add new accounts, edit existing accounts, or delete accounts.
-2. **Auto-Generates Custom Functions**: Dynamically writes into `git-custom.zsh` for each account:
-   - `<short>GClone`: Multi-account SSH-based clone wrapper (e.g., `qiuGClone`, `tpGClone`)
+2. **Auto-Generates Custom Functions**: Dynamically writes `~/.zsh/git-custom.zsh` for each account:
+   - `<short>GClone`: Multi-account SSH-based clone wrapper (e.g. `workGClone`)
    - `<short>_gConfig`: Configures repo-local user name and email
    - `<short>_vConfig`: Configures repo-local SSH commit signing key
-3. **Structured Account List**: Records accounts in `~/.config/git/accountList` (format: `USERNAME:EMAIL:SHORTNAME`).
-4. **Seamless SSH Setup Transition**: Prompts to immediately configure SSH keys for added accounts upon exit.
+3. **Structured Account List**: Records accounts in `~/.config/git/accountList` (format: `USERNAME:EMAIL:SHORTNAME`). The repo template contains no real accounts.
+4. **Repository stays clean**: every write goes to `$HOME`. `customizeGit.bash` never modifies the cloned repository, so account data cannot leak to another user or the next `git pull`.
+5. **Generic helpers**: `gClone` and `reset_vConfig` live in `~/.zsh/git-functions.zsh` and contain no account data.
+6. **Seamless SSH Setup Transition**: Prompts to immediately configure SSH keys for added accounts upon exit.
 
 ---
 
@@ -211,16 +302,17 @@ ssh-setup
 ### What It Does
 
 1. **Creates `~/.ssh`** if it does not already exist, applying secure permissions (`700`).
-2. **Detects Git Accounts**: Reads `~/.config/git/accountList` and shows the current status of Auth keys, Signing keys, and SSH host aliases. Allows setup for a specific account, all accounts, selective accounts, or manual input.
-3. **4 Key Type Choices**:
+2. **Audits existing keys first**: every private key in `~/.ssh` is listed with its fingerprint and whether it is mapped to a host (`~/.ssh/config`), an account (`accountList`), or commit signing (`allowed_signers`). Unmapped keys can be mapped to an existing/new account or added as a signing key **without regenerating them**. Auth-only keys are not treated as broken just because they are absent from `allowed_signers`.
+3. **Detects Git Accounts**: Reads `~/.config/git/accountList` and shows the current status of Auth keys, Signing keys, and SSH host aliases. Allows setup for a specific account, all accounts, selective accounts, or manual input.
+4. **4 Key Type Choices**:
    - **Authentication key only [Default]**: Saves key as `~/.ssh/<Username>` (as-is), configures `~/.ssh/config` host alias for custom accounts (`Host github.com-<Username>`), and does NOT add to `allowed_signers` or touch `~/.gitconfig`.
    - **Commit signing key only**: Saves key as `~/.ssh/<Username>_Signing`, adds to `~/.config/git/allowed_signers`, and does NOT add to `~/.ssh/config` or set global `user.signingkey`.
    - **Both as one (unified)**: ONE key used for both authentication (`~/.ssh/config`) and commit signing (`allowed_signers`).
    - **Generate both keys (separate)**: Generates two distinct keys (`<Username>` for Auth and `<Username>_Signing` for commit signing).
-4. **Automated Keypair Generation**: Generates modern `ed25519` key pairs with prompted email and username (or pre-filled from account list).
-5. **Git Commit Signing Configuration**: When generating a signing key, ensures `~/.config/git/allowed_signers` is updated and global `gpg.format = ssh`, `commit.gpgsign = true`, and `gpg.ssh.allowedSignersFile` are configured.
-6. **Multi-Account SSH Host Alias**: Automatically creates host entries in `~/.ssh/config` for custom accounts (e.g., `Host github.com-Work`).
-7. **GitHub Ready**: Automatically copies public keys to your system clipboard (`pbcopy` on macOS, `termux-clipboard-set` on Termux, or `xclip`/`wl-copy` on Linux) and prints formatted blocks with instructions for GitHub.
+5. **Automated Keypair Generation**: Generates modern `ed25519` key pairs with prompted email and username (or pre-filled from account list).
+6. **Git Commit Signing Configuration**: When generating a signing key, ensures `~/.config/git/allowed_signers` is updated and global `gpg.format = ssh`, `commit.gpgsign = true`, and `gpg.ssh.allowedSignersFile` are configured.
+7. **Multi-Account SSH Host Alias**: Automatically creates host entries in `~/.ssh/config` for custom accounts (e.g., `Host github.com-Work`).
+8. **GitHub Ready**: Automatically copies public keys to your system clipboard (`pbcopy` on macOS, `termux-clipboard-set` on Termux, or `xclip`/`wl-copy` on Linux) and prints formatted blocks with instructions for GitHub.
 
 ---
 

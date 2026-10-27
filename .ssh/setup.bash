@@ -401,6 +401,332 @@ EOF
 }
 
 # -----------------------------------------------------------------------------
+# Existing Key Audit
+#
+# Scans ~/.ssh for private keys and reports whether each one is reachable from
+# ~/.ssh/config (IdentityFile), ~/.config/git/accountList, or allowed_signers.
+# Unmapped keys can be mapped without regenerating them.
+# -----------------------------------------------------------------------------
+ask_yes_no() {
+    local prompt="$1"
+    local default="${2:-n}"
+    local hint=" [y/N] "
+    [[ "$default" == "y" ]] && hint=" [Y/n] "
+
+    local answer
+    if ! read -r -p "${prompt}${hint}" answer; then
+        echo
+        return 1
+    fi
+    if [[ -z "$answer" ]]; then
+        [[ "$default" == "y" ]]
+        return
+    fi
+    [[ "$answer" =~ ^[Yy] ]]
+}
+
+is_private_key() {
+    local f="$1"
+    [[ -f "$f" ]] || return 1
+    [[ "$f" == *.pub ]] && return 1
+    head -n1 "$f" 2>/dev/null | grep -q 'PRIVATE KEY'
+}
+
+# Print the public key line for a private key: prefer the .pub sidecar, fall
+# back to deriving it in memory. Never writes a missing .pub file.
+key_pub_content() {
+    local key="$1"
+    if [[ -f "$key.pub" ]]; then
+        cat "$key.pub"
+    else
+        ssh-keygen -y -P "" -f "$key" 2>/dev/null
+    fi
+}
+
+key_fingerprint() {
+    local content="$1" tmp fp
+    tmp="$(mktemp)"
+    printf '%s\n' "$content" > "$tmp"
+    fp="$(ssh-keygen -lf "$tmp" 2>/dev/null | awk '{print $2}')"
+    rm -f "$tmp"
+    printf '%s' "${fp:-unknown}"
+}
+
+key_in_ssh_config() {
+    local key="$1"
+    local cfg="$HOME/.ssh/config"
+    local base
+    base="$(basename "$key")"
+    [[ -f "$cfg" ]] || return 1
+    grep -qiE "^[[:space:]]*IdentityFile[[:space:]]+.*(/|~/)${base}([[:space:]]|$)" "$cfg" 2>/dev/null
+}
+
+key_in_account_list() {
+    local key="$1" u
+    local base
+    base="$(basename "$key")"
+    for u in "${list_users[@]}"; do
+        [[ "$base" == "$u" || "$base" == "${u}_Signing" ]] && return 0
+    done
+    return 1
+}
+
+key_in_allowed_signers() {
+    local content="$1"
+    local file="$HOME/.config/git/allowed_signers"
+    local data
+    data="$(printf '%s\n' "$content" | awk '{print $2}')"
+    [[ -n "$data" && -f "$file" ]] || return 1
+    grep -qF "$data" "$file" 2>/dev/null
+}
+
+# Append USER:EMAIL:SHORT to ~/.config/git/accountList once.
+add_account_entry() {
+    local user="$1" email="$2" short="$3"
+    local file="$HOME/.config/git/accountList"
+
+    mkdir -p "$(dirname "$file")"
+    touch "$file"
+
+    if grep -qE "^[[:space:]]*${user}:" "$file" 2>/dev/null; then
+        info "Account $(bold "$user") already exists in $(bold "$file")"
+        return 0
+    fi
+    if [[ ! -s "$file" ]]; then
+        cat > "$file" <<'EOF'
+# Git Accounts Configuration List
+# Format: USERNAME:EMAIL:SHORTNAME
+EOF
+    fi
+    echo "${user}:${email}:${short}" >> "$file"
+    info "Added $(bold "$user") to $(bold "$file")"
+}
+
+# Add "Host github.com-<user>" to ~/.ssh/config once.
+add_ssh_host() {
+    local user="$1" key="$2"
+    local cfg="$HOME/.ssh/config"
+    local alias="github.com-$user"
+
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+    touch "$cfg"
+    chmod 600 "$cfg"
+
+    if grep -qE "^[[:space:]]*Host[[:space:]]+${alias}[[:space:]]*$" "$cfg" 2>/dev/null; then
+        local existing
+        existing="$(awk -v a="$alias" '
+            $1 == "Host" && $2 == a { found = 1; next }
+            found && $1 == "IdentityFile" { print $2; exit }
+            found && $1 == "Host" { exit }
+        ' "$cfg" 2>/dev/null)"
+        if [[ -n "$existing" && "$existing" != "$key" && "${existing#\~}" != "${key#$HOME}" ]]; then
+            warn "Host $(bold "$alias") already exists and points to $(bold "$existing")."
+            warn "Not changing it; edit ~/.ssh/config manually if that is wrong."
+        else
+            info "Host $(bold "$alias") already exists in ~/.ssh/config"
+        fi
+        return 0
+    fi
+
+    cat >> "$cfg" <<EOF
+
+# Custom SSH Host for $user
+Host $alias
+    HostName github.com
+    User git
+    IdentityFile $key
+    IdentitiesOnly yes
+EOF
+    info "Added $(bold "$alias") → $(bold "$key")"
+}
+
+# Add a signing key to allowed_signers once.
+add_allowed_signer() {
+    local email="$1" content="$2"
+    local file="$HOME/.config/git/allowed_signers"
+    local key_type_and_data
+
+    mkdir -p "$(dirname "$file")"
+    touch "$file"
+
+    key_type_and_data="$(printf '%s\n' "$content" | awk '{print $1, $2}')"
+    if grep -qF "$key_type_and_data" "$file" 2>/dev/null; then
+        info "Signing key already present in $(bold "$file")"
+        return 0
+    fi
+    echo "$email $key_type_and_data" >> "$file"
+    info "Added signing key for $(bold "$email") to $(bold "$file")"
+
+    git config --global gpg.format ssh 2>/dev/null || true
+    git config --global commit.gpgsign true 2>/dev/null || true
+    git config --global gpg.ssh.allowedSignersFile "$file" 2>/dev/null || true
+}
+
+map_unmapped_key() {
+    local key="$1"
+    local content
+    content="$(key_pub_content "$key" 2>/dev/null || true)"
+    if [[ -z "$content" ]]; then
+        warn "Cannot read the public part of $(basename "$key") (passphrase-protected and no .pub)."
+        warn "Add ${key}.pub manually or regenerate the key."
+        return 0
+    fi
+
+    header "Map key: $(basename "$key")"
+    echo "  1) Authentication key for a Git account"
+    echo "  2) Commit signing key"
+    echo "  3) Skip this key"
+    echo
+
+    local choice
+    read -r -p "  Choose [1/2/3, default 3]: " choice
+    choice="${choice:-3}"
+
+    case "$choice" in
+        1)
+            local account email short
+            if [[ ${#list_users[@]} -gt 0 ]]; then
+                echo "  Existing accounts:"
+                local i
+                for ((i = 0; i < ${#list_users[@]}; i++)); do
+                    echo "    $((i + 1))) ${list_users[i]} <${list_emails[i]}>"
+                done
+                echo "    n) New account"
+                echo
+                local pick
+                read -r -p "  Map to [1-${#list_users[@]}/n]: " pick
+                if [[ "$pick" =~ ^[0-9]+$ ]] && ((pick >= 1 && pick <= ${#list_users[@]})); then
+                    account="${list_users[$((pick - 1))]}"
+                    email="${list_emails[$((pick - 1))]}"
+                    short="${list_shorts[$((pick - 1))]}"
+                fi
+            fi
+
+            if [[ -z "${account:-}" ]]; then
+                read -r -p "  Account username (e.g. Work): " account
+                while [[ -z "$account" ]]; do
+                    warn "Username cannot be empty."
+                    read -r -p "  Account username: " account
+                done
+                read -r -p "  Email for $account: " email
+                read -r -p "  Shortname for wrappers [default: ${account,,}]: " short
+                short="${short:-${account,,}}"
+                add_account_entry "$account" "$email" "$short"
+                list_users+=("$account")
+                list_emails+=("$email")
+                list_shorts+=("$short")
+            fi
+
+            add_ssh_host "$account" "$key"
+            info "Authentication key mapped to account $(bold "$account")."
+            ;;
+        2)
+            local email default_email
+            default_email="$(git config --get user.email 2>/dev/null || echo "")"
+            read -r -p "  Email/principal for signing${default_email:+ [$default_email]}: " email
+            email="${email:-$default_email}"
+            while [[ -z "$email" ]]; do
+                warn "Email cannot be empty for allowed_signers."
+                read -r -p "  Email/principal for signing: " email
+            done
+            add_allowed_signer "$email" "$content"
+            ;;
+        *)
+            info "Skipped $(basename "$key")."
+            ;;
+    esac
+}
+
+audit_ssh_keys() {
+    header "Existing SSH Key Audit"
+
+    local ssh_dir="$HOME/.ssh"
+    local -a key_paths=()
+    local f
+    [[ -d "$ssh_dir" ]] || return 0
+
+    while IFS= read -r f; do
+        is_private_key "$f" && key_paths+=("$f")
+    done < <(find "$ssh_dir" -maxdepth 1 -type f ! -name '*.pub' -print 2>/dev/null | sort)
+
+    if [[ ${#key_paths[@]} -eq 0 ]]; then
+        info "No private keys found in $ssh_dir"
+        return 0
+    fi
+
+    echo "  $(bold "KEY")                          $(bold "FINGERPRINT")                 $(bold "STATUS")"
+    echo
+
+    local -a orphan_keys=()
+    local k content fp missing sign_note
+    for k in "${key_paths[@]}"; do
+        content="$(key_pub_content "$k" 2>/dev/null || true)"
+        if [[ -n "$content" ]]; then
+            fp="$(key_fingerprint "$content")"
+        else
+            fp="(no public key)"
+        fi
+
+        # "Unmapped" means the key is not tied to a host or a Git account.
+        # Not being in allowed_signers is only informational: auth-only keys
+        # are perfectly valid.
+        missing=()
+        key_in_ssh_config "$k"   || missing+=("host")
+        key_in_account_list "$k" || missing+=("account")
+
+        sign_note=""
+        if [[ -n "$content" ]] && ! key_in_allowed_signers "$content"; then
+            sign_note=" (not a signer)"
+        fi
+
+        if [[ ${#missing[@]} -eq 0 ]]; then
+            printf "  %-30s %-30s %s%s\n" "$(basename "$k")" "$fp" "$(green "mapped")" "$sign_note"
+        else
+            orphan_keys+=("$k")
+            printf "  %-30s %-30s %s%s\n" "$(basename "$k")" "$fp" "$(yellow "unmapped: ${missing[*]}")" "$sign_note"
+        fi
+    done
+
+    echo
+    if [[ ${#orphan_keys[@]} -eq 0 ]]; then
+        info "All private keys are mapped."
+        return 0
+    fi
+
+    warn "${#orphan_keys[@]} key(s) are not fully mapped."
+    if ! ask_yes_no "  Map an unmapped key now?" n; then
+        info "Skipped key mapping. You can map later with customizeGit.bash / setup.bash."
+        return 0
+    fi
+
+    local sel
+    if [[ ${#orphan_keys[@]} -eq 1 ]]; then
+        map_unmapped_key "${orphan_keys[0]}"
+        return 0
+    fi
+
+    echo
+    local i
+    for ((i = 0; i < ${#orphan_keys[@]}; i++)); do
+        echo "    $((i + 1))) $(basename "${orphan_keys[$i]}")"
+    done
+    echo "    a) Map all unmapped keys one by one"
+    echo
+    read -r -p "  Choose: " sel
+
+    if [[ "$sel" == [aA] ]]; then
+        for k in "${orphan_keys[@]}"; do
+            map_unmapped_key "$k"
+        done
+    elif [[ "$sel" =~ ^[0-9]+$ ]] && ((sel >= 1 && sel <= ${#orphan_keys[@]})); then
+        map_unmapped_key "${orphan_keys[$((sel - 1))]}"
+    else
+        warn "Invalid selection; nothing mapped."
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Main Setup Flow
 # -----------------------------------------------------------------------------
 main() {
@@ -414,6 +740,7 @@ main() {
     chmod 700 "$ssh_dir"
 
     load_account_list
+    audit_ssh_keys
 
     local selected_users=()
     local selected_emails=()

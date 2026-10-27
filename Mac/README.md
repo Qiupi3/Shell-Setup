@@ -13,12 +13,11 @@ cd ~/Shell-Setup
 
 This automates:
 - Copying the modular `.zshrc` to `~/.zshrc` (with support for Apple Silicon `/opt/homebrew` and Intel `/usr/local`)
-- Copying modular config files from root `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-custom.zsh`, `prompt.zsh`) to `~/.zsh/`
+- Copying modular config files from root `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-functions.zsh`, `prompt.zsh`) to `~/.zsh/`
 - Copying macOS base aliases (`base.bash` with Homebrew shortcuts `bcu`, `bcc`) to `~/.zsh/base.zsh`
 - Installing `zsh-syntax-highlighting` into `~/.zsh/plugins/` (if not already present)
-- Copying shared configuration from `.config/` (including Neovim configuration in `.config/nvim/`) to `~/.config/`
-- Setting up global Git configurations (`~/.gitconfig` & `~/.config/git/allowed_signers`)
-- Installing SSH setup helper to `~/.ssh/setup.bash` (callable with alias `ssh-setup`)
+- Installing the Neovim configuration from `.config/nvim/` to `~/.config/nvim/` **only when Option 2 is selected**
+- Setting up global Git configurations (`~/.gitconfig` & `~/.config/git/allowed_signers`) and SSH files **only when Option 3 is selected**
 - Setting Zsh as your default shell
 
 ## Cleanup & System Analysis Utilities

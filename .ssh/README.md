@@ -20,15 +20,16 @@ ssh-setup
 
 ### What the Setup Script Automates:
 1. Ensures `~/.ssh` exists with secure permissions (`chmod 700`).
-2. Detects accounts from `~/.config/git/accountList` (with key existence indicators), allowing you to configure a specific account, all accounts, selective accounts, or manual input.
-3. Provides 4 key setup choices:
+2. Audits existing private keys, showing each fingerprint and whether it is mapped to a host, a Git account, or `allowed_signers`. Unmapped keys can be mapped without regenerating them.
+3. Detects accounts from `~/.config/git/accountList` (with key existence indicators), allowing you to configure a specific account, all accounts, selective accounts, or manual input.
+4. Provides 4 key setup choices:
    - **Authentication key only [Default]**: Filename as is (`~/.ssh/<Username>`), configured in `~/.ssh/config` host aliases (for custom accounts, e.g. `github.com-<Username>`), and NOT added to `allowed_signers`.
    - **Commit signing key only**: Filename with suffix `_Signing` (`~/.ssh/<Username>_Signing`), added to `~/.config/git/allowed_signers`, and NOT added to `~/.ssh/config`.
    - **Both as one (unified)**: ONE key used for both authentication (`~/.ssh/config`) and commit signing (`allowed_signers`).
    - **Generate both keys (separate)**: Two distinct keys (`<Username>` for Auth and `<Username>_Signing` for commit signing).
-4. Generates modern `Ed25519` key pairs (`ssh-keygen -t ed25519`).
-5. Configures `~/.config/git/allowed_signers` automatically when signing keys are set up, keeping `~/.gitconfig` global signing key untouched for account wrappers.
-6. Copies public keys to your system clipboard (`pbcopy`, `termux-clipboard-set`, or `xclip`/`wl-copy`) and prints them formatted for GitHub.
+5. Generates modern `Ed25519` key pairs (`ssh-keygen -t ed25519`).
+6. Configures `~/.config/git/allowed_signers` automatically when signing keys are set up, keeping `~/.gitconfig` global signing key untouched for account wrappers.
+7. Copies public keys to your system clipboard (`pbcopy`, `termux-clipboard-set`, or `xclip`/`wl-copy`) and prints them formatted for GitHub.
 
 ---
 

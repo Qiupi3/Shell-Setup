@@ -324,6 +324,22 @@ detect_env() {
 # Utilities
 # ---------------------------------------------------------------------------
 cmd_exists() { command -v "$1" &>/dev/null; }
+
+# Like cmd_exists, but ignores the bind-mounted Termux binaries inside
+# proot-distro. Those are Android executables: Termux's ssh reads
+# /data/data/com.termux/files/home/.ssh instead of $HOME/.ssh, and most others
+# cannot run against the guest's dynamic linker at all. They stay on PATH as a
+# fallback for curl/tar during bootstrap, but must never count as installed
+# guest tools.
+native_cmd_exists() {
+    local path
+    path="$(command -v "$1" 2>/dev/null || true)"
+    [[ -n "$path" ]] || return 1
+    if [[ "${IS_PROOT_DISTRO:-0}" -eq 1 && "$path" == /data/data/com.termux/* ]]; then
+        return 1
+    fi
+    return 0
+}
 http_get() {
     local url="$1"
     if command -v curl >/dev/null 2>&1; then
@@ -506,28 +522,41 @@ set_passwd_shell() {
 install_zsh() {
     header "Zsh Shell Setup"
 
-    if cmd_exists zsh; then
-        info "Zsh is already installed: $(zsh --version)"
-    else
-        info "Installing zsh..."
-        pkg_install zsh
-    fi
-
-    local zsh_path
-    zsh_path="$(command -v zsh || true)"
-    if [[ -z "$zsh_path" ]]; then
+    local zsh_path="" candidate
+    if [[ "$ENV_NAME" == "linux" ]]; then
+        # A Termux zsh is visible through the proot bind mount, but it belongs
+        # to Android, not the container. Only accept a guest executable and
+        # install the guest package when one is missing.
         for candidate in /usr/bin/zsh /bin/zsh /usr/local/bin/zsh; do
             if [[ -x "$candidate" ]]; then
                 zsh_path="$candidate"
                 break
             fi
         done
+        if [[ -z "$zsh_path" ]]; then
+            info "Installing zsh..."
+            pkg_install zsh
+            for candidate in /usr/bin/zsh /bin/zsh /usr/local/bin/zsh; do
+                if [[ -x "$candidate" ]]; then
+                    zsh_path="$candidate"
+                    break
+                fi
+            done
+        fi
+    elif cmd_exists zsh; then
+        zsh_path="$(command -v zsh)"
+    else
+        info "Installing zsh..."
+        pkg_install zsh
+        zsh_path="$(command -v zsh || true)"
     fi
+
     if [[ -z "$zsh_path" ]]; then
         err "zsh was installed but its executable could not be found."
         exit 1
     fi
 
+    info "Zsh is ready: $("$zsh_path" --version 2>/dev/null || echo "$zsh_path")"
     info "Setting zsh as default shell ($zsh_path)..."
     case "$ENV_NAME" in
         termux)
@@ -546,7 +575,7 @@ install_zsh() {
             fi
             local current_user
             current_user="$(id -un)"
-            if cmd_exists chsh; then
+            if native_cmd_exists chsh; then
                 if ! as_root chsh -s "$zsh_path" "$current_user"; then
                     # Minimal proot-distro images (notably Debian) can ship chsh
                     # but still fail under proot/PAM. Patch /etc/passwd directly.
@@ -573,19 +602,9 @@ pkg_installed() {
     if [[ "$PKG_MANAGER" == "apt" ]] && dpkg -s "$pkg" &>/dev/null 2>&1; then
         return 0
     fi
-    local cmd path
+    local cmd
     cmd="$(pkg_command "$pkg")"
-    [[ -n "$cmd" ]] || return 1
-    path="$(command -v "$cmd" 2>/dev/null || true)"
-    [[ -n "$path" ]] || return 1
-    # In proot-distro the Termux prefix is bind-mounted into the guest, so its
-    # binaries appear on PATH. They are not substitutes for guest packages:
-    # Termux's ssh reads /data/data/.../home/.ssh instead of $HOME/.ssh, which
-    # makes keys created by the installer invisible to Git.
-    if [[ "$PKG_MANAGER" == "apt" && "$path" == /data/data/com.termux/* ]]; then
-        return 1
-    fi
-    return 0
+    [[ -n "$cmd" ]] && native_cmd_exists "$cmd"
 }
 
 pkg_ensure() {
@@ -825,7 +844,7 @@ install_nvim_config() {
         warn "No Neovim configuration found in the repository."
     fi
 
-    if cmd_exists git; then
+    if native_cmd_exists git; then
         git config --global core.editor nvim 2>/dev/null || true
     fi
 
@@ -843,7 +862,7 @@ install_nvim() {
     ensure_pkgs $(nvim_dep_pkgs)
     install_nvim_config
 
-    if cmd_exists nvim; then
+    if native_cmd_exists nvim; then
         if confirm "  Pre-install Neovim plugins now (lazy.nvim sync)?" y; then
             info "Running lazy.nvim sync (this may take a while)..."
             if nvim --headless "+Lazy! sync" +qa 2>/dev/null; then
@@ -913,7 +932,7 @@ install_ssh_files() {
     fi
 
     # Make sure OpenSSH can actually parse the resulting config.
-    if cmd_exists ssh && ! ssh -G github.com >/dev/null 2>&1; then
+    if native_cmd_exists ssh && ! ssh -G github.com >/dev/null 2>&1; then
         warn "OpenSSH still cannot parse ~/.ssh/config; please inspect it manually."
     fi
 }
@@ -1043,7 +1062,7 @@ setup_gitconfig() {
         git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers 2>/dev/null || true
     fi
 
-    if cmd_exists delta; then
+    if native_cmd_exists delta; then
         info "Configuring git-delta as the pager..."
         git config --global core.pager delta 2>/dev/null || true
         git config --global interactive.diffFilter "delta --color-only" 2>/dev/null || true
@@ -1242,7 +1261,7 @@ install_php() {
 install_antigravity_ext() {
     header "Installing Antigravity CLI"
 
-    if cmd_exists agy; then
+    if native_cmd_exists agy; then
         info "Antigravity CLI — $(green "already installed") ($(agy --version 2>/dev/null || echo "installed"))"
         return 0
     fi
@@ -1281,7 +1300,7 @@ install_antigravity_ext() {
             ;;
     esac
 
-    if cmd_exists agy; then
+    if native_cmd_exists agy; then
         info "Antigravity CLI installed: $(agy --version 2>/dev/null || echo "agy")"
     else
         warn "agy is not on PATH yet."
@@ -1301,7 +1320,7 @@ install_opencode_ext() {
     export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
     mkdir -p "$HOME/.opencode/bin" 2>/dev/null || true
 
-    if cmd_exists opencode; then
+    if native_cmd_exists opencode; then
         info "OpenCode — $(green "already installed") ($(opencode --version 2>/dev/null || echo "installed"))"
         configure_extension_post opencode
         return 0
@@ -1314,7 +1333,7 @@ install_opencode_ext() {
     fi
 
     export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
-    if cmd_exists opencode; then
+    if native_cmd_exists opencode; then
         info "OpenCode installed: $(opencode --version 2>/dev/null || echo "opencode")"
     else
         warn "OpenCode was installed to ~/.opencode/bin but is not on PATH yet."
@@ -1390,7 +1409,7 @@ ext_catalog_ai_tools() {
 install_uv_ext() {
     header "Installing uv (Astral)"
 
-    if cmd_exists uv; then
+    if native_cmd_exists uv; then
         info "uv — $(green "already installed") ($(uv --version 2>/dev/null || echo "installed"))"
         return 0
     fi
@@ -1402,7 +1421,7 @@ install_uv_ext() {
     fi
 
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-    if cmd_exists uv; then
+    if native_cmd_exists uv; then
         info "uv installed: $(uv --version 2>/dev/null || echo "uv")"
     else
         warn "uv was installed but not on PATH yet."
@@ -1413,7 +1432,7 @@ install_uv_ext() {
 install_bun_ext() {
     header "Installing Bun"
 
-    if cmd_exists bun; then
+    if native_cmd_exists bun; then
         info "Bun — $(green "already installed") ($(bun --version 2>/dev/null || echo "installed"))"
         return 0
     fi
@@ -1425,7 +1444,7 @@ install_bun_ext() {
     fi
 
     export PATH="$HOME/.bun/bin:$PATH"
-    if cmd_exists bun; then
+    if native_cmd_exists bun; then
         info "Bun installed: $(bun --version 2>/dev/null || echo "bun")"
     else
         warn "Bun was installed to ~/.bun/bin but not on PATH yet."
@@ -1436,18 +1455,18 @@ install_bun_ext() {
 install_pnpm_ext() {
     header "Installing pnpm"
 
-    if cmd_exists pnpm; then
+    if native_cmd_exists pnpm; then
         info "pnpm — $(green "already installed") ($(pnpm --version 2>/dev/null || echo "installed"))"
         return 0
     fi
 
-    if cmd_exists corepack; then
+    if native_cmd_exists corepack; then
         info "Enabling pnpm via corepack..."
         corepack enable 2>/dev/null || true
         corepack prepare pnpm@latest --activate 2>/dev/null || true
     fi
 
-    if cmd_exists pnpm; then
+    if native_cmd_exists pnpm; then
         info "pnpm installed: $(pnpm --version 2>/dev/null || echo "pnpm")"
         return 0
     fi
@@ -1459,7 +1478,7 @@ install_pnpm_ext() {
     fi
 
     export PATH="$HOME/.local/share/pnpm:$PATH"
-    if cmd_exists pnpm; then
+    if native_cmd_exists pnpm; then
         info "pnpm installed: $(pnpm --version 2>/dev/null || echo "pnpm")"
     else
         warn "pnpm installed but not on PATH yet. Run $(bold "exec zsh") (or restart your shell)."
@@ -1469,7 +1488,7 @@ install_pnpm_ext() {
 install_deno_ext() {
     header "Installing Deno"
 
-    if cmd_exists deno; then
+    if native_cmd_exists deno; then
         info "Deno — $(green "already installed") ($(deno --version 2>/dev/null | head -n1 || echo "installed"))"
         return 0
     fi
@@ -1481,7 +1500,7 @@ install_deno_ext() {
     fi
 
     export PATH="$HOME/.deno/bin:$PATH"
-    if cmd_exists deno; then
+    if native_cmd_exists deno; then
         info "Deno installed: $(deno --version 2>/dev/null | head -n1 || echo "deno")"
     else
         warn "Deno installed to ~/.deno/bin but not on PATH yet. Run $(bold "exec zsh") (or restart your shell)."
@@ -1534,7 +1553,7 @@ ext_installed() {
     fi
     cmd="$(ext_command "${EXT_IDS[$idx]}")"
     if [[ -n "$cmd" ]]; then
-        cmd_exists "$cmd"
+        native_cmd_exists "$cmd"
         return
     fi
     [[ -n "${EXT_PKGS[$idx]}" ]] || return 1
@@ -1567,7 +1586,7 @@ configure_extension_post() {
 
     case "$id" in
         git-delta)
-            if cmd_exists delta; then
+            if native_cmd_exists delta; then
                 info "Configuring git-delta as the pager..."
                 git config --global core.pager delta 2>/dev/null || true
                 git config --global interactive.diffFilter "delta --color-only" 2>/dev/null || true
@@ -1579,46 +1598,46 @@ configure_extension_post() {
             fi
             ;;
         zoxide)
-            if cmd_exists zoxide; then
+            if native_cmd_exists zoxide; then
                 info "zoxide installed. Add 'eval \"\$(zoxide init zsh)\"' to your shell config (already handled in this setup if using provided zshrc)."
             fi
             ;;
         fzf)
-            if cmd_exists fzf; then
+            if native_cmd_exists fzf; then
                 info "fzf installed. Keybindings/completions can be set up via shell config."
             fi
             ;;
         eza)
-            if cmd_exists eza; then
+            if native_cmd_exists eza; then
                 info "eza installed. You can use 'eza' as a modern 'ls' replacement."
             fi
             ;;
         bat)
-            if cmd_exists bat || cmd_exists batcat; then
-                if ! cmd_exists bat && cmd_exists batcat; then
+            if native_cmd_exists bat || native_cmd_exists batcat; then
+                if ! native_cmd_exists bat && native_cmd_exists batcat; then
                     ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat" 2>/dev/null || ln -sf "$(command -v batcat)" /usr/local/bin/bat 2>/dev/null || true
                 fi
                 info "bat installed. Use 'bat' for syntax-highlighted cat output."
             fi
             ;;
         direnv)
-            if cmd_exists direnv; then
+            if native_cmd_exists direnv; then
                 info "direnv installed. Add 'eval \"\$(direnv hook zsh)\"' to your shell config."
             fi
             ;;
         gh)
-            if cmd_exists gh; then
+            if native_cmd_exists gh; then
                 info "GitHub CLI installed. Run 'gh auth login' to authenticate."
             fi
             ;;
         opencode)
-            if cmd_exists opencode || [ -x "$HOME/.opencode/bin/opencode" ]; then
+            if native_cmd_exists opencode || [ -x "$HOME/.opencode/bin/opencode" ]; then
                 export PATH="$HOME/.opencode/bin:$PATH"
                 info "OpenCode installed and PATH updated for this session."
             fi
             ;;
         antigravity)
-            if cmd_exists agy; then
+            if native_cmd_exists agy; then
                 export PATH="$HOME/.local/bin:$PATH"
                 info "Antigravity CLI installed and PATH updated for this session."
             fi
@@ -2251,7 +2270,7 @@ main() {
 
     echo
     info "$(green "Done!")"
-    if cmd_exists zsh; then
+    if native_cmd_exists zsh; then
         info "Load the new configuration now: $(bold "exec zsh")"
         info "or restart your terminal. $(dim "(Do not run 'source ~/.zshrc' from bash.)")"
     else

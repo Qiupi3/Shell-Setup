@@ -89,6 +89,34 @@ shortp() {
 }
 
 # -----------------------------------------------------------------------------
+# Spinner for long-running operations
+# -----------------------------------------------------------------------------
+SPIN_PID=""
+spin_start() {
+  local msg="$1"
+  printf "%s" "$msg"
+  (
+    local spin='|/-\'
+    local i=0
+    while :; do
+      printf "\b%s" "${spin:i++%4:1}"
+      sleep 0.1
+    done
+  ) &
+  SPIN_PID=$!
+  disown "$SPIN_PID" 2>/dev/null
+}
+
+spin_stop() {
+  if [[ -n "${SPIN_PID:-}" ]]; then
+    kill "$SPIN_PID" 2>/dev/null
+    wait "$SPIN_PID" 2>/dev/null
+    printf "\b \n"
+    SPIN_PID=""
+  fi
+}
+
+# -----------------------------------------------------------------------------
 # 4. Cache & Temporary Target Management & Scanner
 # -----------------------------------------------------------------------------
 declare -a T_TYPE=() T_LABEL=() T_SUBLBL=() T_PATHS=() T_CMD=() T_KB=() T_SEL=() T_DESTR=()
@@ -144,7 +172,11 @@ smart_scan_caches() {
   T_KB=()
   T_SEL=()
   T_DESTR=()
-  printf "%s  Scanning Termux system smartly for cleanable cache targets...%s\n" "$DIM" "$N" >&2
+  if [[ -t 2 ]]; then
+    spin_start "  ${DIM}Scanning Termux system smartly for cleanable cache targets...${N} "
+  else
+    printf "%s  Scanning Termux system smartly for cleanable cache targets...%s\n" "$DIM" "$N" >&2
+  fi
   local prefix="${PREFIX:-/data/data/com.termux/files/usr}"
 
   # Tier 1: APT / PKG downloaded deb archives
@@ -239,6 +271,7 @@ smart_scan_caches() {
       add_target "Storage" "Downloads Thumbnail Cache" "Temporary download previews" 0 "" "/sdcard/Download/.thumbnails"
     fi
   fi
+  if [[ -t 2 ]]; then spin_stop; fi
 }
 
 # -----------------------------------------------------------------------------
@@ -313,7 +346,7 @@ detect_project_types() {
   local types=""
 
   # Node.js
-  if [[ -f "$dir/package.json" || -f "$dir/bun.lockb" || -f "$dir/deno.json" ]]; then
+  if [[ -f "$dir/package.json" || -f "$dir/bun.lockb" || -f "$dir/deno.json" || -f "$dir/pnpm-lock.yaml" || -f "$dir/yarn.lock" ]]; then
     types="$types node"
   fi
   # PHP
@@ -321,11 +354,11 @@ detect_project_types() {
     types="$types php"
   fi
   # Python
-  if [[ -f "$dir/requirements.txt" || -f "$dir/pyproject.toml" || -f "$dir/Pipfile" || -f "$dir/setup.py" || -f "$dir/manage.py" ]]; then
+  if [[ -f "$dir/requirements.txt" || -f "$dir/pyproject.toml" || -f "$dir/Pipfile" || -f "$dir/setup.py" || -f "$dir/manage.py" || -f "$dir/uv.lock" ]]; then
     types="$types python"
   fi
   # Rust
-  if [[ -f "$dir/Cargo.toml" ]]; then
+  if [[ -f "$dir/Cargo.toml" || -f "$dir/rust-toolchain" ]]; then
     types="$types rust"
   fi
   # Go
@@ -333,19 +366,19 @@ detect_project_types() {
     types="$types go"
   fi
   # Java
-  if [[ -f "$dir/build.gradle" || -f "$dir/build.gradle.kts" || -f "$dir/pom.xml" ]]; then
+  if [[ -f "$dir/build.gradle" || -f "$dir/build.gradle.kts" || -f "$dir/pom.xml" || -f "$dir/settings.gradle" ]]; then
     types="$types java"
   fi
   # C/C++
-  if [[ -f "$dir/CMakeLists.txt" || -f "$dir/Makefile" || -f "$dir/makefile" ]]; then
+  if [[ -f "$dir/CMakeLists.txt" || -f "$dir/Makefile" || -f "$dir/makefile" || -f "$dir/meson.build" ]]; then
     types="$types c"
   fi
   # Ruby
-  if [[ -f "$dir/Gemfile" ]]; then
+  if [[ -f "$dir/Gemfile" || -f "$dir/Rakefile" ]]; then
     types="$types ruby"
   fi
   # Neovim / Lua config
-  if [[ -d "$dir/nvim" || -f "$dir/init.lua" ]]; then
+  if [[ -d "$dir/nvim" || -f "$dir/init.lua" || -f "$dir/init.vim" ]]; then
     types="$types nvim"
   fi
   # Shell script / installer project
@@ -371,7 +404,11 @@ scan_user_projects() {
   PROJ_TYPES=()
   PROJ_SIZES=()
   PROJ_GITS=()
-  printf "%s  Scanning projects in '%s' (this may take a moment)...%s\n" "$DIM" "$(shortp "$scan_root")" "$N" >&2
+  if [[ -t 2 ]]; then
+    spin_start "  ${DIM}Scanning projects in '$(shortp "$scan_root")'...${N} "
+  else
+    printf "%s  Scanning projects in '%s' (this may take a moment)...%s\n" "$DIM" "$(shortp "$scan_root")" "$N" >&2
+  fi
 
   local prune_opts=()
   if [[ "$scan_root" == "$HOME" ]]; then
@@ -390,7 +427,11 @@ scan_user_projects() {
     )
   fi
 
-  local ind_file pdir
+  local tmpdir
+  tmpdir="$(mktemp -d 2>/dev/null || echo "/tmp/cleanup-$$")"
+  mkdir -p "$tmpdir" 2>/dev/null
+
+  local ind_file pdir idx=0
   while IFS= read -r ind_file; do
     [[ -n "$ind_file" ]] || continue
     pdir="$(dirname "$ind_file")"
@@ -398,16 +439,16 @@ scan_user_projects() {
     # Avoid duplicate project directory registrations
     case " ${PROJ_PATHS[*]:-} " in *" $pdir "*) continue ;; esac
 
-    local psz_kb git_stat ptypes
-    psz_kb=$(size_kb "$pdir")
-    git_stat="$(inspect_git_status "$pdir")"
-    ptypes="$(detect_project_types "$pdir")"
-
-    PROJ_PATHS[$NPROJS]="$pdir"
-    PROJ_TYPES[$NPROJS]="$ptypes"
-    PROJ_SIZES[$NPROJS]="$psz_kb"
-    PROJ_GITS[$NPROJS]="$git_stat"
-    NPROJS=$((NPROJS + 1))
+    PROJ_PATHS[$idx]="$pdir"
+    PROJ_SIZES[$idx]=$(size_kb "$pdir")
+    PROJ_TYPES[$idx]=$(detect_project_types "$pdir")
+    if [[ -t 2 && $((idx % 10)) -eq 0 ]]; then
+      printf "\b${spin:idx/10%4:1}" 2>/dev/null || true
+    fi
+    (
+      echo "$(inspect_git_status "$pdir")" > "$tmpdir/git_$idx"
+    ) &
+    idx=$((idx + 1))
   done <<EOF
 $(find "$scan_root" -maxdepth 6 \( "${prune_opts[@]}" \) -prune -o \
   \( -name ".git" -prune -print \) -o \
@@ -417,7 +458,19 @@ $(find "$scan_root" -maxdepth 6 \( "${prune_opts[@]}" \) -prune -o \
      -name "pom.xml" -o -name "CMakeLists.txt" -o -name "Makefile" -o -name "Gemfile" \) \
   -print 2>/dev/null)
 EOF
+  NPROJS=$idx
+  wait 2>/dev/null
+  local pi
+  for pi in $(seq 0 $((NPROJS - 1))); do
+    if [[ -f "$tmpdir/git_$pi" ]]; then
+      PROJ_GITS[$pi]="$(cat "$tmpdir/git_$pi")"
+    else
+      PROJ_GITS[$pi]="$(inspect_git_status "${PROJ_PATHS[$pi]}")"
+    fi
+  done
+  rm -rf "$tmpdir" 2>/dev/null
 
+  if [[ -t 2 ]]; then spin_stop; fi
   printf "  %sFound %d project(s).%s\n" "$G" "$NPROJS" "$N" >&2
   if [[ $NPROJS -gt 0 ]]; then
     local pi
@@ -440,7 +493,11 @@ scan_installed_packages() {
   PKG_RDEPS=()
   PKG_PROJS=()
   PKG_CLEANSZ=()
-  printf "%s  Scanning installed packages & dependencies...%s\n" "$DIM" "$N" >&2
+  if [[ -t 2 ]]; then
+    spin_start "  ${DIM}Scanning installed packages & dependencies...${N} "
+  else
+    printf "%s  Scanning installed packages & dependencies...%s\n" "$DIM" "$N" >&2
+  fi
 
   # Query package name, size in KB, summary, dependencies
   local pkg_line pkg_name pkg_sz pkg_sum pkg_dep
@@ -500,6 +557,7 @@ scan_installed_packages() {
 $(dpkg-query -W -f='${Package}\t${Installed-Size}\t${binary:Summary}\t${Depends}\n' 2>/dev/null)
 EOF
 
+  if [[ -t 2 ]]; then spin_stop; fi
   printf "  %sAnalyzed %d package(s).%s\n" "$G" "$NPKGS" "$N" >&2
 }
 
@@ -552,7 +610,7 @@ display_package_report() {
         "$usage_badge"
 
       printf "    %sDescription:%s %s\n" "$DIM" "$N" "${p_desc:-No description available}"
-      [[ -n "$p_rdep" ]] && printf "    %sReverse Depends:%s %s\n" "$DIM" "$N" "$p_rdep"
+      [[ -n "$p_rdep" ]] && printf "    %sOther packages using this:%s %s\n" "$DIM" "$N" "$p_rdep"
 
       # Print associated projects if any
       if [[ -n "$p_proj_indices" ]]; then
@@ -579,10 +637,33 @@ display_package_report() {
 manage_package_interactive() {
   while true; do
     echo "--------------------------------------------------------------------------------"
-    printf "  Enter package number to manage/clean, %s'scan'%s to re-scan, or %s'q'%s to return: " "$B" "$N" "$B" "$N"
+    printf "  Enter package number to manage/clean, %s'scan'%s to re-scan, %s'/'%s to filter, or %s'q'%s to return: " "$B" "$N" "$B" "$N" "$B" "$N"
     local sel=""
     read -r sel
     [[ "$sel" == "q" || "$sel" == "Q" || -z "$sel" ]] && break
+
+    if [[ "$sel" == "/" || "$sel" == "filter" ]]; then
+      local filt=""
+      read -r -p "  Filter packages by name/desc (substring): " filt
+      if [[ -n "$filt" ]]; then
+        printf "\n%s=== Filtered Packages (%s) ===%s\n\n" "$B" "$filt" "$N"
+        local k
+        for k in $(seq 0 $((NPKGS - 1))); do
+          local pn="${PKG_NAMES[$k]}" pd="${PKG_DESCS[$k]}"
+          if [[ "$pn" == *"$filt"* || "$pd" == *"$filt"* ]]; then
+            local ps="${PKG_SIZES[$k]}" pc="${PKG_CLEANSZ[$k]}" pr="${PKG_PROJS[$k]}"
+            local ub="${Y}[FILTERED]${N}"
+            [[ -n "$pr" ]] && ub="${G}[IN USE]${N}"
+            printf "%s[%d]%s %s%-20s%s  Size: %s%s%s  Cleanable: %s%s%s  %s\n" \
+              "$B" "$((k + 1))" "$N" "$C$B" "$pn" "$N" \
+              "$B" "$(human "$ps")" "$N" \
+              "$G" "$(human "$pc")" "$N" "$ub"
+            printf "    %s%s%s\n\n" "$DIM" "${pd:-No description}" "$N"
+          fi
+        done
+      fi
+      continue
+    fi
 
     if [[ "$sel" == "scan" || "$sel" == "SCAN" ]]; then
       local new_root=""
@@ -646,7 +727,9 @@ manage_package_interactive() {
         read -r -p "  Confirm uninstalling package bundle? [y/N]: " confirm_pkg
         if [[ "$confirm_pkg" =~ ^[Yy] ]]; then
           echo "  Uninstalling $p_name $p_rdep..."
-          pkg uninstall -y "$p_name" $p_rdep 2>/dev/null || apt-get remove --purge -y "$p_name" $p_rdep 2>/dev/null || true
+          local -a rdeps_arr=()
+          for rp in $p_rdep; do [[ -n "$rp" ]] && rdeps_arr+=("$rp"); done
+          pkg uninstall -y "$p_name" "${rdeps_arr[@]}" 2>/dev/null || apt-get remove --purge -y "$p_name" "${rdeps_arr[@]}" 2>/dev/null || true
           apt-get autoremove -y 2>/dev/null || true
           printf "%s✓ Uninstalled package bundle %s (%s freed)!%s\n" "$G" "$p_name" "$(human "$p_clean")" "$N"
           echo "----------------------------------------------------------------------"
@@ -718,7 +801,9 @@ manage_package_interactive() {
           local confirm_pkg=""
           read -r -p "  Confirm uninstalling package bundle? [y/N]: " confirm_pkg
           if [[ "$confirm_pkg" =~ ^[Yy] ]]; then
-            pkg uninstall -y "$p_name" $p_rdep 2>/dev/null || apt-get remove --purge -y "$p_name" $p_rdep 2>/dev/null || true
+            local -a rdeps_arr=()
+            for rp in $p_rdep; do [[ -n "$rp" ]] && rdeps_arr+=("$rp"); done
+            pkg uninstall -y "$p_name" "${rdeps_arr[@]}" 2>/dev/null || apt-get remove --purge -y "$p_name" "${rdeps_arr[@]}" 2>/dev/null || true
             apt-get autoremove -y 2>/dev/null || true
             printf "%s✓ Full cleanup completed for %s!%s\n" "$G" "$p_name" "$N"
           fi
@@ -812,6 +897,7 @@ run_package_analyzer() {
 # -----------------------------------------------------------------------------
 CUR=0
 SCROLL=0
+TUI_FILTER=""
 
 calc_totals() {
   local i
@@ -858,7 +944,15 @@ draw_tui() {
   local end_idx=$((SCROLL + max_rows - 1))
   [[ $end_idx -ge $NROWS ]] && end_idx=$((NROWS - 1))
 
+  local shown=0
   for i in $(seq "$SCROLL" "$end_idx"); do
+    if [[ -n "$TUI_FILTER" ]]; then
+      local tl="${T_LABEL[$i]} ${T_SUBLBL[$i]} ${T_TYPE[$i]}"
+      if [[ "${tl,,}" != *"${TUI_FILTER,,}"* ]]; then
+        continue
+      fi
+    fi
+    shown=1
     if [[ "${T_SEL[$i]}" -eq 1 ]]; then
       mark="[${G}x${N}]"
     else
@@ -883,6 +977,9 @@ draw_tui() {
       printf "  %s\n" "$row_str"
     fi
   done
+  if [[ $shown -eq 0 ]]; then
+    printf "  %s(no items match filter)%s\n" "$DIM" "$N"
+  fi
 
   if [[ $NROWS -gt $max_rows ]]; then
     printf "%s  [%d-%d of %d items]  %s\n" "$DIM" "$((SCROLL+1))" "$((end_idx+1))" "$NROWS" "$N"
@@ -892,7 +989,31 @@ draw_tui() {
 
   printf "  %sTotal Selected:%s %s%s%s   %sTotal Scanned:%s %s\n" \
     "$DIM" "$N" "$B" "$(human "$SEL_KB")" "$N" "$DIM" "$(human "$GRAND_KB")"
-  printf "%s  ↑/↓: navigate · Space: toggle · a: all · i: invert · Enter: clean · q: quit%s\n" "$DIM" "$N"
+  printf "%s  ↑/↓: navigate · Space: toggle · a: all · i: invert · /: filter · Enter: clean · h: help · q: quit%s\n" "$DIM" "$N"
+  if [[ -n "$TUI_FILTER" ]]; then
+    printf "%s  Filter: %s%s%s\n" "$DIM" "$C" "$TUI_FILTER" "$N"
+  fi
+}
+
+show_tui_help() {
+  printf '\033[H\033[J'
+  printf "%s%sTUI Help%s\n\n" "$B" "$C" "$N"
+  echo "  Navigation:"
+  echo "    ↑/k        Move up"
+  echo "    ↓/j        Move down"
+  echo
+  echo "  Selection:"
+  echo "    Space      Toggle current item"
+  echo "    a/A        Select all / Deselect all"
+  echo "    i/I        Invert selection"
+  echo
+  echo "  Actions:"
+  echo "    Enter      Clean selected items"
+  echo "    h/?        Show this help"
+  echo "    q/Esc      Quit without cleaning"
+  echo
+  printf "%sPress any key to return...%s" "$DIM" "$N"
+  read -rsn1 _
 }
 
 run_tui() {
@@ -953,6 +1074,25 @@ run_tui() {
         stty echo 2>/dev/null
         printf "\n%sCleanup cancelled.%s\n" "$Y" "$N"
         exit 0
+        ;;
+      /)
+        printf '\033[?25h'
+        stty echo 2>/dev/null
+        printf '\033[H\033[J'
+        local nf=""
+        read -r -p "  Filter (substring, empty to clear): " nf
+        TUI_FILTER="$nf"
+        stty -echo 2>/dev/null
+        printf '\033[?25l'
+        CUR=0
+        SCROLL=0
+        ;;
+      h|H|\?)
+        printf '\033[?25h'
+        stty echo 2>/dev/null
+        show_tui_help
+        stty -echo 2>/dev/null
+        printf '\033[?25l'
         ;;
       '')
         break
@@ -1024,7 +1164,7 @@ EOF
         printf "      %s[dry-run] %s%s\n" "$DIM" "$cmd" "$N"
       else
         printf "      %sExecuting: %s...%s\n" "$DIM" "$cmd" "$N"
-        eval "$cmd" 2>/dev/null || true
+        bash -c "$cmd" 2>/dev/null || true
       fi
     fi
 
@@ -1082,11 +1222,12 @@ interactive_main_menu() {
     echo "    1) Smart Cache & Temp Cleanup    — Interactive TUI checklist for caches & temp files"
     echo "    2) Package & Project Analyzer     — Scan installed packages, project usage & full clean"
     echo "    3) Scan Report Only               — Non-destructive overview report of cleanable space"
+    echo "    4) Dry-Run Cache Cleanup         — Simulate cleanup without deleting files"
     echo "    q) Quit"
     echo
 
     local choice
-    read -r -p "  Choose [1-3/q]: " choice
+    read -r -p "  Choose [1-4/q]: " choice
     case "$choice" in
       1)
         smart_scan_caches
@@ -1113,6 +1254,16 @@ interactive_main_menu() {
         done
         calc_totals
         printf "\n  %sTotal Cleanable Cache Space:%s %s%s%s\n\n" "$DIM" "$N" "$B" "$(human "$GRAND_KB")" "$N"
+        read -r -p "  Press Enter to continue..." _
+        ;;
+      4)
+        smart_scan_caches
+        if [[ $NROWS -gt 0 ]]; then
+          run_tui
+          execute_cache_cleanup 1
+        else
+          printf "%s✓ No cleanable caches found.%s\n" "$G" "$N"
+        fi
         read -r -p "  Press Enter to continue..." _
         ;;
       q|Q)

@@ -37,3 +37,5 @@ alias setup-ssh='bash ~/.ssh/setup.bash'
 alias git-accounts='bash ~/.zsh/customizeGit.bash'
 alias custom-git='bash ~/.zsh/customizeGit.bash'
 
+# OpenCode
+alias opc='opencode'

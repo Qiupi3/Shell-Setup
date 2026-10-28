@@ -823,6 +823,18 @@ setup_gitconfig() {
         info "Configuring global git settings in ~/.gitconfig..."
         git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers 2>/dev/null || true
     fi
+
+    if cmd_exists delta; then
+        info "Configuring git-delta as the pager..."
+        git config --global core.pager delta 2>/dev/null || true
+        git config --global interactive.diffFilter "delta --color-only" 2>/dev/null || true
+        git config --global delta.navigate true 2>/dev/null || true
+        git config --global delta.line-numbers true 2>/dev/null || true
+        git config --global delta.side-by-side false 2>/dev/null || true
+        git config --global merge.conflictstyle diff3 2>/dev/null || true
+        git config --global diff.colorMoved default 2>/dev/null || true
+    fi
+
     info "Global Git configuration setup completed."
 }
 
@@ -1076,26 +1088,25 @@ ext_catalog() {
 
     case "$ENV_NAME" in
         linux)
-            EXT_IDS=(python node php go rust java build rg fd fzf jq tmux direnv gitlfs sqlite gh imagemagick ffmpeg)
-            EXT_NAMES=("Python" "Node.js" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "ImageMagick" "FFmpeg")
-            EXT_DESCS=("Python 3 + pip + venv" "Node.js + npm" "PHP runtime" "Go toolchain" "rustc + cargo" "Default JDK" "gcc, make, headers" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Image conversion" "Audio/video conversion")
-            EXT_PKGS=("python3 python3-pip python3-venv" "nodejs npm" "php" "golang" "rustc cargo" "default-jdk" "build-essential" "ripgrep" "fd-find" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite3" "gh" "imagemagick" "ffmpeg")
-            EXT_GROUPS=("Languages" "Languages" "Languages" "Languages" "Languages" "Languages" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools")
+            EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
+            EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
+            EXT_DESCS=("Python 3 + pip + venv" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "rustc + cargo" "Default JDK" "gcc, make, headers" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
+            EXT_PKGS=("python3 python3-pip python3-venv" "" "ruby" "nodejs npm" "" "" "" "php" "golang" "rustc cargo" "default-jdk" "build-essential" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd-find" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite3" "gh" "ffmpeg" "imagemagick")
+            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
             ;;
         termux)
-            EXT_IDS=(python node php go rust java build rg fd fzf jq tmux direnv gitlfs sqlite gh imagemagick ffmpeg)
-            EXT_NAMES=("Python" "Node.js" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "ImageMagick" "FFmpeg")
-            EXT_DESCS=("Python + pip" "Node.js + npm" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK 17" "clang + make" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Image conversion" "Audio/video conversion")
-            EXT_PKGS=("python" "nodejs" "php" "golang" "rust" "openjdk-17" "clang make" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "imagemagick" "ffmpeg")
-            EXT_GROUPS=("Languages" "Languages" "Languages" "Languages" "Languages" "Languages" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools")
+            EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
+            EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
+            EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK 17" "clang + make" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
+            EXT_PKGS=("python" "" "ruby" "nodejs" "" "" "" "php" "golang" "rust" "openjdk-17" "clang make" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "ffmpeg" "imagemagick")
+            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
             ;;
         mac)
-            EXT_IDS=(python node php go rust java build rg fd fzf jq tmux direnv gitlfs sqlite gh imagemagick ffmpeg)
-            EXT_NAMES=("Python" "Node.js" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "ImageMagick" "FFmpeg")
-            EXT_DESCS=("Python + pip" "Node.js + npm" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK" "make" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Image conversion" "Audio/video conversion")
-            EXT_PKGS=("python" "node" "php" "go" "rust" "openjdk" "make" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "imagemagick" "ffmpeg")
-            EXT_GROUPS=("Languages" "Languages" "Languages" "Languages" "Languages" "Languages" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools")
-            ;;
+            EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
+            EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
+            EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK" "make" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
+            EXT_PKGS=("python" "" "ruby" "node" "" "" "" "php" "go" "rust" "openjdk" "make" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "ffmpeg" "imagemagick")
+            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
     esac
 
     ext_catalog_ai_tools
@@ -1120,11 +1131,116 @@ ext_catalog_ai_tools() {
     fi
 }
 
+install_uv_ext() {
+    header "Installing uv (Astral)"
+
+    if cmd_exists uv; then
+        info "uv — $(green "already installed") ($(uv --version 2>/dev/null || echo "installed"))"
+        return 0
+    fi
+
+    info "Installing via the official uv installer..."
+    if ! curl -fsSL https://astral.sh/uv/install.sh | sh; then
+        err "uv installation failed."
+        return 1
+    fi
+
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if cmd_exists uv; then
+        info "uv installed: $(uv --version 2>/dev/null || echo "uv")"
+    else
+        warn "uv was installed but not on PATH yet."
+        warn "Restart your shell or add ~/.local/bin to PATH."
+    fi
+}
+
+install_bun_ext() {
+    header "Installing Bun"
+
+    if cmd_exists bun; then
+        info "Bun — $(green "already installed") ($(bun --version 2>/dev/null || echo "installed"))"
+        return 0
+    fi
+
+    info "Installing via the official Bun installer..."
+    if ! curl -fsSL https://bun.sh/install | bash; then
+        err "Bun installation failed."
+        return 1
+    fi
+
+    export PATH="$HOME/.bun/bin:$PATH"
+    if cmd_exists bun; then
+        info "Bun installed: $(bun --version 2>/dev/null || echo "bun")"
+    else
+        warn "Bun was installed to ~/.bun/bin but not on PATH yet."
+        warn "Restart your shell or add ~/.bun/bin to PATH."
+    fi
+}
+
+install_pnpm_ext() {
+    header "Installing pnpm"
+
+    if cmd_exists pnpm; then
+        info "pnpm — $(green "already installed") ($(pnpm --version 2>/dev/null || echo "installed"))"
+        return 0
+    fi
+
+    if cmd_exists corepack; then
+        info "Enabling pnpm via corepack..."
+        corepack enable 2>/dev/null || true
+        corepack prepare pnpm@latest --activate 2>/dev/null || true
+    fi
+
+    if cmd_exists pnpm; then
+        info "pnpm installed: $(pnpm --version 2>/dev/null || echo "pnpm")"
+        return 0
+    fi
+
+    info "Installing via official pnpm installer..."
+    if ! curl -fsSL https://get.pnpm.io/install.sh | sh -; then
+        err "pnpm installation failed."
+        return 1
+    fi
+
+    export PATH="$HOME/.local/share/pnpm:$PATH"
+    if cmd_exists pnpm; then
+        info "pnpm installed: $(pnpm --version 2>/dev/null || echo "pnpm")"
+    else
+        warn "pnpm installed but not on PATH yet. Restart your shell."
+    fi
+}
+
+install_deno_ext() {
+    header "Installing Deno"
+
+    if cmd_exists deno; then
+        info "Deno — $(green "already installed") ($(deno --version 2>/dev/null | head -n1 || echo "installed"))"
+        return 0
+    fi
+
+    info "Installing via the official Deno installer..."
+    if ! curl -fsSL https://deno.land/install.sh | sh; then
+        err "Deno installation failed."
+        return 1
+    fi
+
+    export PATH="$HOME/.deno/bin:$PATH"
+    if cmd_exists deno; then
+        info "Deno installed: $(deno --version 2>/dev/null | head -n1 || echo "deno")"
+    else
+        warn "Deno installed to ~/.deno/bin but not on PATH yet. Restart your shell."
+    fi
+}
+
 # Return the custom installer function for an extension, or nothing.
 ext_installer_fn() {
     case "$1" in
         antigravity) echo "install_antigravity_ext" ;;
         opencode)    echo "install_opencode_ext" ;;
+        uv)          echo "install_uv_ext" ;;
+        bun)         echo "install_bun_ext" ;;
+        pnpm)        echo "install_pnpm_ext" ;;
+        deno)        echo "install_deno_ext" ;;
         *)           echo "" ;;
     esac
 }
@@ -1134,6 +1250,10 @@ ext_command() {
     case "$1" in
         antigravity) echo "agy" ;;
         opencode)    echo "opencode" ;;
+        uv)          echo "uv" ;;
+        bun)         echo "bun" ;;
+        pnpm)        echo "pnpm" ;;
+        deno)        echo "deno" ;;
         *)           echo "" ;;
     esac
 }
@@ -1205,6 +1325,7 @@ install_ext_ids() {
 # a numbered prompt so automation keeps working.
 ext_tui_cleanup() {
     printf '\033[?25h'
+    printf '\033[?1049l'
     stty echo 2>/dev/null || true
 }
 
@@ -1217,10 +1338,22 @@ ext_selected_count() {
 }
 
 ext_draw_tui() {
-    local lines max_rows i start end last_group mark state count
+    local lines max_rows i start end last_group mark state count group out prev_group
 
     lines="$(tput lines 2>/dev/null || echo 24)"
-    max_rows=$((lines - 13))
+    max_rows=$((lines - 16))
+    (( max_rows < 4 )) && max_rows=4
+    (( max_rows > ${#EXT_IDS[@]} )) && max_rows=${#EXT_IDS[@]}
+
+    if (( EXT_CUR < EXT_SCROLL )); then
+        EXT_SCROLL=$EXT_CUR
+    elif (( EXT_CUR >= EXT_SCROLL + max_rows )); then
+        EXT_SCROLL=$((EXT_CUR - max_rows + 1))
+    fi
+    local lines max_rows i start end last_group mark state count group out prev_group
+
+    lines="$(tput lines 2>/dev/null || echo 24)"
+    max_rows=$((lines - 16))
     (( max_rows < 4 )) && max_rows=4
     (( max_rows > ${#EXT_IDS[@]} )) && max_rows=${#EXT_IDS[@]}
 
@@ -1230,9 +1363,11 @@ ext_draw_tui() {
         EXT_SCROLL=$((EXT_CUR - max_rows + 1))
     fi
 
-    printf '\033[H\033[J'
-    printf '  %s\n' "$(bold "Shell-Setup Extensions")"
-    printf '  %s\n\n' "$(dim "Space toggles selections, Enter installs the selected tools.")"
+    out=""
+    out+=$'\033[H'
+    out+=$'\033[2K'"  $(bold "Shell-Setup Extensions")"$'\n'
+    out+=$'\033[2K'"  $(dim "Space toggles selections, Enter installs the selected tools.")"$'\n'
+    out+=$'\033[2K\n'
 
     start=$EXT_SCROLL
     end=$((EXT_SCROLL + max_rows - 1))
@@ -1240,32 +1375,46 @@ ext_draw_tui() {
 
     last_group=""
     for ((i = start; i <= end; i++)); do
-        if [[ "${EXT_GROUPS[$i]}" != "$last_group" ]]; then
-            last_group="${EXT_GROUPS[$i]}"
-            printf '      %s\n' "$(bold "$last_group")"
+        group="${EXT_GROUPS[$i]:-}"
+        if (( i == start )); then
+            prev_group="${EXT_GROUPS[$((start - 1))]:-}"
+            if [[ -n "$group" && "$group" != "$prev_group" ]]; then
+                last_group="$group"
+                out+=$'\033[2K'"      $(bold "$group")"$'\n'
+            else
+                last_group="$group"
+            fi
+        else
+            if [[ -n "$group" && "$group" != "$last_group" ]]; then
+                last_group="$group"
+                out+=$'\033[2K'"      $(bold "$group")"$'\n'
+            fi
         fi
 
         mark="[ ]"
-        [[ "${EXT_SELECTED[$i]}" -eq 1 ]] && mark="$(green "[x]")"
+        [[ "${EXT_SELECTED[$i]:-0}" -eq 1 ]] && mark="$(green "[x]")"
 
         state=""
-        [[ "${EXT_INSTALLED[$i]}" -eq 1 ]] && state=" $(dim "[installed]")"
+        [[ "${EXT_INSTALLED[$i]:-0}" -eq 1 ]] && state=" $(dim "[installed]")"
 
         if (( i == EXT_CUR )); then
-            printf '  %s %s %-14s %s%s\n' \
-                "$(cyan "❯")" "$mark" "${EXT_NAMES[$i]}" "$(dim "${EXT_DESCS[$i]}")" "$state"
+            out+=$'\033[2K'"  $(cyan "❯") $mark $(printf '%-14s' "${EXT_NAMES[$i]:-}") $(dim "${EXT_DESCS[$i]:-}")$state"$'\n'
         else
-            printf '    %s %-14s %s%s\n' \
-                "$mark" "${EXT_NAMES[$i]}" "$(dim "${EXT_DESCS[$i]}")" "$state"
+            out+=$'\033[2K'"    $mark $(printf '%-14s' "${EXT_NAMES[$i]:-}") $(dim "${EXT_DESCS[$i]:-}")$state"$'\n'
         fi
     done
 
+    out+=$'\033[2K\n'
     count="$(ext_selected_count)"
-    printf '\n  %s selected' "$(bold "$count")"
+    out+=$'\033[2K'"  $(bold "$count") selected"
     if (( ${#EXT_IDS[@]} > max_rows )); then
-        printf '   %s' "$(dim "[$((EXT_SCROLL + 1))-$((end + 1)) of ${#EXT_IDS[@]}]")"
+        out+="   $(dim "[$((EXT_SCROLL + 1))-$((end + 1)) of ${#EXT_IDS[@]}]")"
     fi
-    printf '\n  %s\n' "$(dim "↑/↓ move · Space toggle · a all/none · i invert · Enter install · q skip")"
+    out+=$'\n'
+    out+=$'\033[2K'"  $(dim "↑/↓ move · Space toggle · a all/none · i invert · Enter install · q skip")"$'\n'
+    out+=$'\033[J'
+
+    printf '%s' "$out"
 }
 
 # Returns 0 when the user confirmed, 1 when they cancelled or hit EOF.
@@ -1273,21 +1422,22 @@ ext_select_tui() {
     local key c1 c2 i any rc=0
 
     stty -echo 2>/dev/null || true
+    printf '\033[?1049h'
     printf '\033[?25l'
+    ext_draw_tui
     trap 'ext_tui_cleanup; exit 130' INT TERM
 
     while :; do
-        ext_draw_tui
-
-        if ! IFS= read -rsn1 key; then
-            rc=1
-            break
+        if ! IFS= read -rsn1 -t 0.2 key 2>/dev/null; then
+            # Redraw only if needed? skip to avoid flicker; just continue
+            key=""
         fi
+        [[ -z "$key" ]] && continue
 
         if [[ "$key" == $'\033' ]]; then
-            read -rsn1 -t 1 c1 2>/dev/null || c1=""
+            read -rsn1 -t 0.05 c1 2>/dev/null || c1=""
             if [[ "$c1" == "[" || "$c1" == "O" ]]; then
-                read -rsn1 -t 1 c2 2>/dev/null || c2=""
+                read -rsn1 -t 0.05 c2 2>/dev/null || c2=""
                 key="$key$c1$c2"
             elif [[ -n "$c1" ]]; then
                 key="$key$c1"
@@ -1298,36 +1448,41 @@ ext_select_tui() {
             $'\033[A'|$'\033OA'|k|K)
                 EXT_CUR=$((EXT_CUR - 1))
                 (( EXT_CUR < 0 )) && EXT_CUR=$(( ${#EXT_IDS[@]} - 1 ))
+                ext_draw_tui
                 ;;
             $'\033[B'|$'\033OB'|j|J)
                 EXT_CUR=$((EXT_CUR + 1))
                 (( EXT_CUR >= ${#EXT_IDS[@]} )) && EXT_CUR=0
+                ext_draw_tui
                 ;;
             ' ')
-                if [[ "${EXT_SELECTED[$EXT_CUR]}" -eq 1 ]]; then
+                if [[ "${EXT_SELECTED[$EXT_CUR]:-0}" -eq 1 ]]; then
                     EXT_SELECTED[$EXT_CUR]=0
                 else
                     EXT_SELECTED[$EXT_CUR]=1
                 fi
+                ext_draw_tui
                 ;;
             a|A)
                 # Select all when anything is unselected, otherwise clear all.
                 any=0
                 for i in "${!EXT_IDS[@]}"; do
-                    [[ "${EXT_SELECTED[$i]}" -eq 0 ]] && any=1
+                    [[ "${EXT_SELECTED[$i]:-0}" -eq 0 ]] && any=1
                 done
                 for i in "${!EXT_IDS[@]}"; do
                     EXT_SELECTED[$i]=$any
                 done
+                ext_draw_tui
                 ;;
             i|I)
                 for i in "${!EXT_IDS[@]}"; do
-                    if [[ "${EXT_SELECTED[$i]}" -eq 1 ]]; then
+                    if [[ "${EXT_SELECTED[$i]:-0}" -eq 1 ]]; then
                         EXT_SELECTED[$i]=0
                     else
                         EXT_SELECTED[$i]=1
                     fi
                 done
+                ext_draw_tui
                 ;;
             q|Q|$'\033')
                 rc=1
@@ -1340,7 +1495,6 @@ ext_select_tui() {
     done
 
     ext_tui_cleanup
-    printf '\033[H\033[J'
     trap - INT TERM
     return "$rc"
 }

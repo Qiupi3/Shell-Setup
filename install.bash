@@ -215,8 +215,23 @@ detect_env() {
         ENV_NAME="linux"
         ENV_DIR="$REPO_DIR/Linux"
         detect_linux_distro
-        if cmd_exists apt-get && cmd_exists dpkg; then
+        # Prefer system apt-get over Termux-wrapped ones
+        if [[ -x /usr/bin/apt-get && -x /usr/bin/dpkg ]]; then
             PKG_MANAGER="apt"
+            export PATH="/usr/bin:/usr/sbin:/bin:/sbin:$PATH"
+        elif cmd_exists apt-get && cmd_exists dpkg; then
+            local _apt="$(command -v apt-get)"
+            if [[ "$_apt" == *termux/* ]]; then
+                if [[ -x /usr/bin/apt-get ]]; then
+                    PKG_MANAGER="apt"
+                    export PATH="/usr/bin:/usr/sbin:/bin:/sbin:$PATH"
+                else
+                    err "Unsupported Linux distribution: ${LINUX_ID} ${LINUX_VERSION}"
+                    exit 1
+                fi
+            else
+                PKG_MANAGER="apt"
+            fi
         else
             err "Unsupported Linux distribution: ${LINUX_ID} ${LINUX_VERSION}"
             err "This installer supports Debian/Ubuntu-based systems (apt/dpkg)."
@@ -238,6 +253,45 @@ detect_env() {
 # Utilities
 # ---------------------------------------------------------------------------
 cmd_exists() { command -v "$1" &>/dev/null; }
+http_get() {
+    local url="$1"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- "$url"
+    else
+        return 1
+    fi
+}
+http_get_pipe() {
+    local url="$1"
+    shift
+    if command -v curl >/dev/null 2>&1 || [ -x /data/data/com.termux/files/usr/bin/curl ]; then
+        local c="/data/data/com.termux/files/usr/bin/curl"
+        command -v curl >/dev/null 2>&1 && c="$(command -v curl)"
+        if (($# == 0)); then
+            "$c" -fsSL "$url"
+        elif (($# == 1)); then
+            "$c" -fsSL "$url" | "$1"
+        else
+            "$c" -fsSL "$url" | "$@"
+        fi
+        return $?
+    elif command -v wget >/dev/null 2>&1 || [ -x /data/data/com.termux/files/usr/bin/wget ]; then
+        local w="/data/data/com.termux/files/usr/bin/wget"
+        command -v wget >/dev/null 2>&1 && w="$(command -v wget)"
+        if (($# == 0)); then
+            "$w" -qO- "$url"
+        elif (($# == 1)); then
+            "$w" -qO- "$url" | "$1"
+        else
+            "$w" -qO- "$url" | "$@"
+        fi
+        return $?
+    else
+        return 1
+    fi
+}
 
 # Run a command as root: directly when already root (proot-distro, containers),
 # through sudo on a normal Linux desktop.
@@ -276,7 +330,14 @@ pkg_install() {
     local pkg="$1"
     case "$PKG_MANAGER" in
         pkg)
-            pkg install -y "$pkg"
+            if [[ -x /data/data/com.termux/files/usr/bin/pkg ]]; then
+                env PATH=/data/data/com.termux/files/usr/bin:$PATH /data/data/com.termux/files/usr/bin/pkg install -y "$pkg"
+            elif command -v pkg >/dev/null 2>&1; then
+                pkg install -y "$pkg"
+            else
+                err "pkg not found"
+                return 1
+            fi
             ;;
         brew)
             if ! cmd_exists brew; then
@@ -286,11 +347,16 @@ pkg_install() {
             brew install "$pkg"
             ;;
         apt)
+            local aptg="/usr/bin/apt-get"
+            [[ -x "$aptg" ]] || aptg="$(command -v apt-get 2>/dev/null || echo apt-get)"
+            if [[ "$aptg" == *termux/* ]]; then
+                aptg="/usr/bin/apt-get"
+            fi
             if [[ "$APT_UPDATED" -eq 0 ]]; then
-                as_root env DEBIAN_FRONTEND=noninteractive apt-get update -y
+                as_root env DEBIAN_FRONTEND=noninteractive "$aptg" update -y
                 APT_UPDATED=1
             fi
-            as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            as_root env DEBIAN_FRONTEND=noninteractive "$aptg" install -y \
                 -o Dpkg::Options::="--force-confold" "$pkg"
             ;;
     esac
@@ -1012,7 +1078,7 @@ install_antigravity_ext() {
                 pkg_install glibc
             fi
 
-            if ! curl -fsSL https://raw.githubusercontent.com/wallentx/antigravity-cli-termux/dev/install.sh | bash; then
+            if ! http_get_pipe https://raw.githubusercontent.com/wallentx/antigravity-cli-termux/dev/install.sh bash; then
                 err "Antigravity CLI installation failed."
                 return 1
             fi
@@ -1021,7 +1087,7 @@ install_antigravity_ext() {
             # The wallentx installer is Termux-only. Linux (including
             # proot-distro) and macOS use Google's official installer.
             info "Installing via the official Antigravity CLI installer..."
-            if ! curl -fsSL https://antigravity.google/cli/install.sh | bash; then
+            if ! http_get_pipe https://antigravity.google/cli/install.sh bash; then
                 err "Antigravity CLI installation failed."
                 return 1
             fi
@@ -1054,7 +1120,7 @@ install_opencode_ext() {
     fi
 
     info "Installing OpenCode v2 from the official installer..."
-    if ! curl -fsSL https://opencode.ai/v2/install | bash; then
+    if ! http_get_pipe https://opencode.ai/v2/install bash; then
         err "OpenCode installation failed."
         return 1
     fi
@@ -1140,7 +1206,7 @@ install_uv_ext() {
     fi
 
     info "Installing via the official uv installer..."
-    if ! curl -fsSL https://astral.sh/uv/install.sh | sh; then
+    if ! http_get_pipe https://astral.sh/uv/install.sh sh; then
         err "uv installation failed."
         return 1
     fi
@@ -1163,7 +1229,7 @@ install_bun_ext() {
     fi
 
     info "Installing via the official Bun installer..."
-    if ! curl -fsSL https://bun.sh/install | bash; then
+    if ! http_get_pipe https://bun.sh/install bash; then
         err "Bun installation failed."
         return 1
     fi
@@ -1197,7 +1263,7 @@ install_pnpm_ext() {
     fi
 
     info "Installing via official pnpm installer..."
-    if ! curl -fsSL https://get.pnpm.io/install.sh | sh -; then
+    if ! http_get_pipe https://get.pnpm.io/install.sh sh -; then
         err "pnpm installation failed."
         return 1
     fi
@@ -1219,7 +1285,7 @@ install_deno_ext() {
     fi
 
     info "Installing via the official Deno installer..."
-    if ! curl -fsSL https://deno.land/install.sh | sh; then
+    if ! http_get_pipe https://deno.land/install.sh sh; then
         err "Deno installation failed."
         return 1
     fi
@@ -1288,6 +1354,69 @@ ext_installed() {
     return 0
 }
 
+configure_extension_post() {
+    local id="$1"
+    case "$id" in
+        git-delta)
+            if cmd_exists delta; then
+                info "Configuring git-delta as the pager..."
+                git config --global core.pager delta 2>/dev/null || true
+                git config --global interactive.diffFilter "delta --color-only" 2>/dev/null || true
+                git config --global delta.navigate true 2>/dev/null || true
+                git config --global delta.line-numbers true 2>/dev/null || true
+                git config --global delta.side-by-side false 2>/dev/null || true
+                git config --global merge.conflictstyle diff3 2>/dev/null || true
+                git config --global diff.colorMoved default 2>/dev/null || true
+            fi
+            ;;
+        zoxide)
+            if cmd_exists zoxide; then
+                info "zoxide installed. Add 'eval \"\$(zoxide init zsh)\"' to your shell config (already handled in this setup if using provided zshrc)."
+            fi
+            ;;
+        fzf)
+            if cmd_exists fzf; then
+                info "fzf installed. Keybindings/completions can be set up via shell config."
+            fi
+            ;;
+        eza)
+            if cmd_exists eza; then
+                info "eza installed. You can use 'eza' as a modern 'ls' replacement."
+            fi
+            ;;
+        bat)
+            if cmd_exists bat || cmd_exists batcat; then
+                if ! cmd_exists bat && cmd_exists batcat; then
+                    ln -sf "$(command -v batcat)" /usr/local/bin/bat 2>/dev/null || ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat" 2>/dev/null || true
+                fi
+                info "bat installed. Use 'bat' for syntax-highlighted cat output."
+            fi
+            ;;
+        direnv)
+            if cmd_exists direnv; then
+                info "direnv installed. Add 'eval \"\$(direnv hook zsh)\"' to your shell config."
+            fi
+            ;;
+        gh)
+            if cmd_exists gh; then
+                info "GitHub CLI installed. Run 'gh auth login' to authenticate."
+            fi
+            ;;
+        opencode)
+            if cmd_exists opencode; then
+                info "OpenCode installed. Configure via its CLI or config files as needed."
+            fi
+            ;;
+        antigravity)
+            if cmd_exists agy; then
+                info "Antigravity CLI installed. Run 'agy' to get started."
+            fi
+            ;;
+        *)
+            ;;
+    esac
+}
+
 install_ext_ids() {
     local id idx pkg fn
     for id in "$@"; do
@@ -1301,11 +1430,13 @@ install_ext_ids() {
             if ! "$fn"; then
                 return 1
             fi
+            configure_extension_post "$id"
             continue
         fi
 
         if ext_installed "$idx"; then
             info "${EXT_NAMES[$idx]} — $(green "already installed")"
+            configure_extension_post "$id"
             continue
         fi
 
@@ -1313,6 +1444,7 @@ install_ext_ids() {
         for pkg in ${EXT_PKGS[$idx]}; do
             pkg_ensure "$pkg"
         done
+        configure_extension_post "$id"
     done
 }
 
@@ -1428,11 +1560,10 @@ ext_select_tui() {
     trap 'ext_tui_cleanup; exit 130' INT TERM
 
     while :; do
-        if ! IFS= read -rsn1 -t 0.2 key 2>/dev/null; then
-            # Redraw only if needed? skip to avoid flicker; just continue
-            key=""
+        if ! IFS= read -rsn1 key 2>/dev/null; then
+            break
         fi
-        [[ -z "$key" ]] && continue
+        [[ -z "$key" ]] && break
 
         if [[ "$key" == $'\033' ]]; then
             read -rsn1 -t 0.05 c1 2>/dev/null || c1=""
@@ -1488,7 +1619,7 @@ ext_select_tui() {
                 rc=1
                 break
                 ;;
-            '')
+            ''|$'\n'|$'\r')
                 break
                 ;;
         esac
@@ -1506,13 +1637,13 @@ ext_select_prompt() {
 
     local last_group="" i state
     for i in "${!EXT_IDS[@]}"; do
-        if [[ "${EXT_GROUPS[$i]}" != "$last_group" ]]; then
-            last_group="${EXT_GROUPS[$i]}"
+        if [[ "${EXT_GROUPS[$i]:-}" != "$last_group" ]]; then
+            last_group="${EXT_GROUPS[$i]:-}"
             echo "  $(bold "$last_group")"
         fi
         state=""
-        [[ "${EXT_INSTALLED[$i]}" -eq 1 ]] && state=" $(dim "[installed]")"
-        printf "    %2d) %-14s — %s%s\n" "$((i + 1))" "${EXT_NAMES[$i]}" "${EXT_DESCS[$i]}" "$state"
+        [[ "${EXT_INSTALLED[$i]:-0}" -eq 1 ]] && state=" $(dim "[installed]")"
+        printf "    %2d) %-14s — %s%s\n" "$((i + 1))" "${EXT_NAMES[$i]:-}" "${EXT_DESCS[$i]:-}" "$state"
     done
     echo
 
@@ -1778,6 +1909,10 @@ EOF
 # Main Entrypoint
 # ---------------------------------------------------------------------------
 main() {
+    # Ensure common package manager paths are available (Termux/Android)
+    if [[ -d /data/data/com.termux/files/usr/bin ]]; then
+        export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/sbin:$PATH"
+    fi
     detect_env
 
     if [[ $# -eq 0 ]]; then

@@ -1,3 +1,11 @@
+# This file is zsh-only. Sourcing it from bash produces confusing
+# "setopt: command not found" and "parse error near '('" messages, so stop
+# early with a useful hint instead.
+if [ -n "${BASH_VERSION:-}" ]; then
+    echo "~/.zshrc is a zsh configuration. Start zsh with: exec zsh" >&2
+    return 1 2>/dev/null || exit 1
+fi
+
 # >>> History >>>
 HISTFILE=$HOME/.zsh_history
 HISTSIZE=50000

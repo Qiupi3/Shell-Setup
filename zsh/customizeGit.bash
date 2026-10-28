@@ -162,9 +162,28 @@ ${s}_gConfig() {
 # ${s}_vConfig function
 # Helper to configure local git repository to use ${u} Signing Key via SSH
 ${s}_vConfig() {
+    local _sign_key=""
+    local _candidate
+    for _candidate in \\
+        "\$HOME/.ssh/${u}_Signing.pub" \\
+        "\$HOME/.ssh/${u}.pub" \\
+        "\$HOME/.ssh/id_ed25519.pub"; do
+        if [[ -f "\$_candidate" ]]; then
+            _sign_key="\$_candidate"
+            break
+        fi
+    done
+
+    if [[ -z "\$_sign_key" ]]; then
+        echo "No SSH signing key found for ${u}." >&2
+        echo "Run 'ssh-setup' to create one." >&2
+        return 1
+    fi
+
     git config gpg.format ssh
-    git config user.signingkey ~/.ssh/${u}_Signing.pub
+    git config user.signingkey "\$_sign_key"
     git config commit.gpgsign true
+    echo "Configured ${u} commit signing with \$_sign_key"
 }
 
 ${s}GClone() {
@@ -415,6 +434,13 @@ ask_ssh_setup() {
 main() {
     load_accounts
 
+    if [[ ${#usernames[@]} -eq 0 ]]; then
+        info "No Git accounts configured yet."
+        echo
+        add_account
+        load_accounts
+    fi
+
     while true; do
         header "Git Multi-Account Manager"
         display_accounts
@@ -444,7 +470,9 @@ main() {
                 info "Finalizing configuration..."
                 save_account_list
                 generate_git_custom_zsh
-                ask_ssh_setup
+                if [[ "${SHELL_SETUP_NO_SSH_PROMPT:-0}" != "1" ]]; then
+                    ask_ssh_setup
+                fi
                 echo
                 info "$(green "All account updates completed!")"
                 exit 0
@@ -455,5 +483,16 @@ main() {
         esac
     done
 }
+
+# Non-interactive entry point used by setup.bash / the installer when an
+# account is added outside this menu and the generated wrappers need to be
+# refreshed without opening the TUI.
+case "${1:-}" in
+    --sync|--generate)
+        load_accounts
+        generate_git_custom_zsh
+        exit 0
+        ;;
+esac
 
 main "$@"

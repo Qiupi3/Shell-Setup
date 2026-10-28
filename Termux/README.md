@@ -91,12 +91,18 @@ chsh -s zsh
 
 ---
 
-# 6. Restart Your Terminal Session
+# 6. Load the New Configuration
 
-Close the current terminal session:
+You do **not** need to close Termux. Start zsh in the current session:
 
 ```bash
-exit
+exec zsh
 ```
 
-Then reopen Termux. Your new Zsh configuration will be loaded automatically!
+This replaces the current bash process with zsh and loads the new aliases,
+functions, prompt, and PATH immediately. A newly opened Termux session will
+also start zsh automatically.
+
+> From bash, do not run `source ~/.zshrc` — it is a zsh configuration and will
+> fail with `setopt: command not found` / `parse error near '('`. Use
+> `exec zsh` instead.

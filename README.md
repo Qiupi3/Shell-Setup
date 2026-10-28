@@ -27,7 +27,8 @@ curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bas
 The script downloads the current `main` tarball to a temporary directory,
 re-runs the installer from there, and removes it afterwards. It attaches the
 controlling terminal, so the interactive menu and the extension picker work
-even though stdin is a pipe.
+even though stdin is a pipe. It also drains the remaining script bytes before
+exiting, so curl never ends with `(23) Failure writing output to destination`.
 
 Pass flags with `bash -s --`:
 
@@ -35,6 +36,21 @@ Pass flags with `bash -s --`:
 curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash \
   | bash -s -- --all
 ```
+
+### After installation: load zsh correctly
+
+`~/.zshrc` is a **zsh** file. If the installer was launched from bash (the
+normal case for `curl | bash`), `source ~/.zshrc` will fail with
+`setopt: command not found` or `parse error near '('`. Start zsh instead:
+
+```bash
+exec zsh
+```
+
+`exec zsh` replaces the current bash process, so aliases, generated Git
+functions, the prompt, and the tool `PATH` are available immediately — no need
+to close Termux or re-enter proot-distro. A new terminal will use zsh
+automatically after Option 1 sets it as the default shell.
 
 ### From a clone
 
@@ -54,7 +70,7 @@ Running without arguments launches an interactive menu:
 
     1) Shell environment   — Zsh, aliases, plugins, ~/.zshrc (offers Neovim)
     2) Neovim editor       — config, EDITOR/VISUAL, git core.editor
-    3) Git accounts & SSH  — audit keys, signing, clone wrappers
+    3) Git accounts & SSH  — accounts, SSH keys, clone wrappers
     4) Extensions          — multi-select languages and CLI tools
     5) Everything          — run 1 → 2 → 3 → 4
     q) Quit
@@ -74,6 +90,24 @@ needs. The recommended CLI tools (`tree`, `which`, `man`, `less`, `curl`,
 `wget`, `unzip`, `file`, `ps`) are offered at the end of Option 1, defaulting to
 **no**, and the installer lists exactly which features will not work if skipped.
 
+### Option 3 flow (Git accounts & SSH)
+
+Option 3 runs in two orders that match the generated files:
+
+1. **Accounts and wrappers** — opens the account manager so you define
+   `USERNAME:EMAIL:SHORTNAME` first. On a fresh setup it goes straight to the
+   first "Add account" prompt; when accounts already exist the manager is
+   optional (default: skip). Saving regenerates `~/.zsh/git-custom.zsh` with
+   `<short>GClone`, `<short>_gConfig`, and `<short>_vConfig`.
+2. **SSH keys and signing** — runs `ssh-setup` once. Keys are named after the
+   accounts, added to `~/.ssh/config` / `allowed_signers`, and the wrappers are
+   regenerated afterwards. A single configured account is selected
+   automatically instead of asking you to pick "1" from a one-item menu.
+
+`<short>_vConfig` looks for `<Username>_Signing.pub`, then `<Username>.pub`, then
+`id_ed25519.pub`, so it also works with unified keys and auth-only keys used for
+signing.
+
 ### Android proot-distro (Ubuntu or Debian)
 
 Both `ubuntu` and `debian` proot-distro images are supported. Install the image
@@ -83,7 +117,10 @@ once, log in, and run the installer from inside the container:
 proot-distro install ubuntu        # or: proot-distro install debian
 proot-distro login ubuntu          # or: proot-distro login debian
 
-# Inside the container:
+# Inside the container — one-liner:
+curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash
+
+# Or from a clone:
 git clone https://github.com/<your-user>/Shell-Setup.git
 cd Shell-Setup
 ./install.bash            # interactive: pick modules
@@ -91,10 +128,24 @@ cd Shell-Setup
 ./install.bash --all      # Shell + Neovim + Git/SSH
 ```
 
-The installer detects the proot container, clears inherited Termux/Android
-environment variables, and uses the container's own `apt`, `git`, `zsh`, and
-other tools. `sudo` is not required inside proot-distro because the login user
-is root; on a normal Debian/Ubuntu desktop the installer uses `sudo` when needed.
+The installer detects the proot container, re-executes itself with the
+container's native `/bin/bash`, clears inherited Termux/Android environment
+variables, and uses the container's own `apt`, `git`, `zsh`, and other tools.
+After sanitising the inherited `PATH`, it can still fall back to Termux's
+`curl` and `tar` through the bind mount, so the self-bootstrap download keeps
+working even when the guest image has no curl of its own.
+
+If your login shell resolves `bash` to Termux's Android binary, run the
+one-liner with the container's shell explicitly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | /bin/bash
+```
+
+After installation, run `exec zsh` **inside the same proot-distro session** to
+load the aliases, Git functions, prompt, and tool paths immediately. `sudo` is
+not required inside proot-distro because the login user is root; on a normal
+Debian/Ubuntu desktop the installer uses `sudo` when needed.
 
 ### Command-Line Flags
 
@@ -165,8 +216,8 @@ proot-distro login ubuntu      # or: proot-distro login debian
 curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash -s -- --ext opencode
 ```
 
-The OpenCode installer writes `~/.opencode/bin` and adds it to your shell
-configuration. Restart the shell (or `source ~/.zshrc`) afterwards.
+The OpenCode installer writes `~/.opencode/bin`; the path is added to
+`~/.zsh/paths.zsh`, so it is available after `exec zsh` (or a new zsh session).
 
 ---
 
@@ -198,6 +249,7 @@ Shell-Setup/
 │   ├── aliases.zsh             # General shell aliases & ssh-setup shortcut
 │   ├── git-aliases.zsh         # Unified Git & submodule aliases with safety indicators
 │   ├── git-functions.zsh       # Generic gClone / reset_vConfig helpers (no accounts)
+│   ├── paths.zsh               # Adds ~/.local/bin, OpenCode, Bun, Cargo, Deno, pnpm to PATH
 │   ├── customizeGit.bash       # Generates ~/.zsh/git-custom.zsh from your account list
 │   └── prompt.zsh              # Dynamic Git-aware prompt
 ├── Mac/
@@ -287,7 +339,8 @@ custom-git
 3. **Structured Account List**: Records accounts in `~/.config/git/accountList` (format: `USERNAME:EMAIL:SHORTNAME`). The repo template contains no real accounts.
 4. **Repository stays clean**: every write goes to `$HOME`. `customizeGit.bash` never modifies the cloned repository, so account data cannot leak to another user or the next `git pull`.
 5. **Generic helpers**: `gClone` and `reset_vConfig` live in `~/.zsh/git-functions.zsh` and contain no account data.
-6. **Seamless SSH Setup Transition**: Prompts to immediately configure SSH keys for added accounts upon exit.
+6. **Seamless SSH transition**: when run from Option 3, the installer handles SSH setup right after the account list, so keys are always attached to a known account. Standalone `git-accounts` still offers SSH setup on exit (set `SHELL_SETUP_NO_SSH_PROMPT=1` to suppress it).
+7. **Path setup**: `~/.zsh/paths.zsh` adds per-user tool directories (`~/.local/bin`, OpenCode, Bun, Cargo, Deno, pnpm, Antigravity) so new zsh sessions find them.
 
 ---
 
@@ -303,7 +356,7 @@ ssh-setup
 
 1. **Creates `~/.ssh`** if it does not already exist, applying secure permissions (`700`).
 2. **Audits existing keys first**: every private key in `~/.ssh` is listed with its fingerprint and whether it is mapped to a host (`~/.ssh/config`), an account (`accountList`), or commit signing (`allowed_signers`). Unmapped keys can be mapped to an existing/new account or added as a signing key **without regenerating them**. Auth-only keys are not treated as broken just because they are absent from `allowed_signers`.
-3. **Detects Git Accounts**: Reads `~/.config/git/accountList` and shows the current status of Auth keys, Signing keys, and SSH host aliases. Allows setup for a specific account, all accounts, selective accounts, or manual input.
+3. **Detects Git Accounts**: Reads `~/.config/git/accountList` and shows the current status of Auth keys, Signing keys, and SSH host aliases. A single account is selected automatically; multiple accounts can be set up individually, all at once, selectively, or by manual input.
 4. **4 Key Type Choices**:
    - **Authentication key only [Default]**: Saves key as `~/.ssh/<Username>` (as-is), configures `~/.ssh/config` host alias for custom accounts (`Host github.com-<Username>`), and does NOT add to `allowed_signers` or touch `~/.gitconfig`.
    - **Commit signing key only**: Saves key as `~/.ssh/<Username>_Signing`, adds to `~/.config/git/allowed_signers`, and does NOT add to `~/.ssh/config` or set global `user.signingkey`.

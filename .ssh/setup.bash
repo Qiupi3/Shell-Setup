@@ -727,6 +727,20 @@ audit_ssh_keys() {
 }
 
 # -----------------------------------------------------------------------------
+# Refresh generated account wrappers
+#
+# setup.bash may add an account (when mapping an existing key) or create new
+# keys. Regenerate ~/.zsh/git-custom.zsh so the account list and wrapper
+# functions stay in sync without asking the user to open the manager again.
+# -----------------------------------------------------------------------------
+sync_git_custom() {
+    local customizer="$HOME/.zsh/customizeGit.bash"
+    [[ -f "$customizer" ]] || return 0
+
+    SHELL_SETUP_NO_SSH_PROMPT=1 bash "$customizer" --sync >/dev/null 2>&1 || true
+}
+
+# -----------------------------------------------------------------------------
 # Main Setup Flow
 # -----------------------------------------------------------------------------
 main() {
@@ -745,7 +759,23 @@ main() {
     local selected_users=()
     local selected_emails=()
 
-    if [[ ${#list_users[@]} -gt 0 ]]; then
+    if [[ ${#list_users[@]} -eq 1 ]]; then
+        # One account is the common case after the Option 3 account step.
+        # Don't make the user pick "1" from a one-item menu.
+        selected_users=("${list_users[0]}")
+        selected_emails=("${list_emails[0]}")
+        local only_user="${list_users[0]}"
+        local only_auth="$(yellow "[Auth: None]")"
+        local only_sign="$(yellow "[Sign: None]")"
+        local only_host=""
+        [[ -f "$ssh_dir/$only_user" ]] && only_auth="$(green "[Auth: Found]")"
+        [[ -f "$ssh_dir/${only_user}_Signing" ]] && only_sign="$(green "[Sign: Found]")"
+        grep -q "Host github.com-$only_user" "$ssh_dir/config" 2>/dev/null \
+            && only_host="$(green "[SSH Host: Added]")"
+        echo "$(bold "Git Account:") $(cyan "$only_user") <${list_emails[0]}>"
+        printf "      Status: %s  %s  %s\n" "$only_auth" "$only_sign" "$only_host"
+        echo
+    elif [[ ${#list_users[@]} -gt 1 ]]; then
         echo "$(bold "Discovered Git Accounts in ~/.config/git/accountList:")"
         echo
         for ((i = 0; i < ${#list_users[@]}; i++)); do
@@ -857,6 +887,8 @@ main() {
     for ((k = 0; k < ${#selected_users[@]}; k++)); do
         setup_single_account "${selected_users[k]}" "${selected_emails[k]}"
     done
+
+    sync_git_custom
 
     echo
     info "$(green "All SSH setups finished successfully!")"

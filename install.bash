@@ -9,16 +9,52 @@
 # Cleanup runs before the bash check on purpose: a fresh `proot-distro login`
 # already starts a bash shell, so testing BASH_VERSION alone would skip the
 # cleanup in exactly the case that needs it.
+SHELL_SETUP_IN_PROOT=0
 if [ -n "${PD_CONTAINER:-}" ] || [ "${container:-}" = "proot-distro" ]; then
+    SHELL_SETUP_IN_PROOT=1
     # Proot bind-mounts the Termux prefix and leaks Android/Termux variables
     # (PREFIX, BOOTCLASSPATH, PATH, ...) into the guest. Remove them and use
-    # the container's native Linux search path instead.
+    # the container's native Linux search path instead. TMPDIR and the TLS
+    # variables can also point at Termux paths that do not exist in guest
+    # tooling, so clear those as well.
     unset PREFIX TERMUX_VERSION TERMUX__HOME TERMUX__PREFIX
     unset TERMUX_APP__PACKAGE_NAME TERMUX_APP__PID TERMUX_APP__UID
     unset ANDROID_ROOT ANDROID_DATA ANDROID_ART_ROOT ANDROID_I18N_ROOT
     unset ANDROID_TZDATA_ROOT EXTERNAL_STORAGE
     unset BOOTCLASSPATH DEX2OATBOOTCLASSPATH LD_PRELOAD LD_LIBRARY_PATH
+    unset TMPDIR SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE GIT_SSL_CAINFO
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+fi
+
+# Re-run this script under the right bash. When the script arrives on stdin
+# (`curl ... | sh`), $0 is a bare shell name and cannot be passed to bash as a
+# filename; `-s` makes bash read the same stdin instead.
+shell_setup_reexec_bash() {
+    _bash_bin="$1"
+    shift
+
+    _script=""
+    case "$0" in
+        */*)  _script="$0" ;;
+        bash|sh|dash|ash|zsh) _script="" ;;
+        *)    _script="$(command -v "$0" 2>/dev/null || true)" ;;
+    esac
+
+    if [ -n "$_script" ] && [ -f "$_script" ]; then
+        exec "$_bash_bin" "$_script" "$@"
+    fi
+    exec "$_bash_bin" -s -- "$@"
+}
+
+# A proot-distro session can inherit Termux's Android bash. It sometimes starts,
+# but its dynamic linker and libraries are the wrong ones for guest tooling, so
+# switch to the container's native bash before doing any work.
+if [ "$SHELL_SETUP_IN_PROOT" -eq 1 ] \
+    && [ -n "${BASH_VERSION:-}" ] \
+    && [ -x /bin/bash ] \
+    && [ "${BASH:-}" != "/bin/bash" ] \
+    && [ "${BASH:-}" != "/usr/bin/bash" ]; then
+    shell_setup_reexec_bash /bin/bash "$@"
 fi
 
 if [ -z "${BASH_VERSION:-}" ] || [ -n "${POSIXLY_CORRECT:-}" ]; then
@@ -27,11 +63,11 @@ if [ -z "${BASH_VERSION:-}" ] || [ -n "${POSIXLY_CORRECT:-}" ]; then
     unset POSIXLY_CORRECT
 
     if [ -n "${PREFIX:-}" ] && [ -x "$PREFIX/bin/bash" ]; then
-        exec "$PREFIX/bin/bash" "$0" "$@"
-    elif command -v bash >/dev/null 2>&1; then
-        exec bash "$0" "$@"
+        shell_setup_reexec_bash "$PREFIX/bin/bash" "$@"
     elif [ -x /bin/bash ]; then
-        exec /bin/bash "$0" "$@"
+        shell_setup_reexec_bash /bin/bash "$@"
+    elif command -v bash >/dev/null 2>&1; then
+        shell_setup_reexec_bash "$(command -v bash)" "$@"
     else
         echo "Error: bash is required to run this script." >&2
         exit 1
@@ -108,15 +144,34 @@ SHELL_OFFER_NVIM=1
 # repository. Download the current main tarball to a temporary directory,
 # re-run the real installer from it, then remove the temporary copy.
 # The `zsh/` directory is the marker: it is required by every module.
-if [[ ! -d "$REPO_DIR/zsh" ]]; then
+if [[ ! -d "$REPO_DIR/zsh" || ! -f "$REPO_DIR/install.bash" ]]; then
+    set -o pipefail
     BOOTSTRAP_RC=0
     BOOTSTRAP_DIR=""
 
-    if ! command -v curl >/dev/null 2>&1; then
+    # A proot-distro guest often has no curl of its own, while Termux's curl
+    # is reachable through the bind mount. Use it as a fallback instead of
+    # failing with "curl is required" after the trampoline sanitised PATH.
+    BOOTSTRAP_CURL=""
+    if command -v curl >/dev/null 2>&1; then
+        BOOTSTRAP_CURL="$(command -v curl)"
+    elif [[ -x /data/data/com.termux/files/usr/bin/curl ]]; then
+        BOOTSTRAP_CURL="/data/data/com.termux/files/usr/bin/curl"
+    fi
+
+    BOOTSTRAP_TAR=""
+    if command -v tar >/dev/null 2>&1; then
+        BOOTSTRAP_TAR="$(command -v tar)"
+    elif [[ -x /data/data/com.termux/files/usr/bin/tar ]]; then
+        BOOTSTRAP_TAR="/data/data/com.termux/files/usr/bin/tar"
+    fi
+
+    if [[ -z "$BOOTSTRAP_CURL" ]]; then
         echo "  ✗ curl is required to bootstrap Shell-Setup." >&2
+        echo "  Install it first (e.g. apt-get install -y curl) or clone the repository." >&2
         exit 1
     fi
-    if ! command -v tar >/dev/null 2>&1; then
+    if [[ -z "$BOOTSTRAP_TAR" ]]; then
         echo "  ✗ tar is required to bootstrap Shell-Setup." >&2
         exit 1
     fi
@@ -125,12 +180,18 @@ if [[ ! -d "$REPO_DIR/zsh" ]]; then
     trap 'rm -rf "$BOOTSTRAP_DIR"' EXIT
 
     echo "  » Downloading Shell-Setup..."
-    if ! curl -fsSL --retry 2 \
-        https://github.com/Qiupi3/Shell-Setup/archive/refs/heads/main.tar.gz \
-        | tar -xz -C "$BOOTSTRAP_DIR"; then
+    BOOTSTRAP_ARCHIVE="$BOOTSTRAP_DIR/shell-setup.tar.gz"
+    if ! "$BOOTSTRAP_CURL" -fsSL --retry 2 \
+        -o "$BOOTSTRAP_ARCHIVE" \
+        https://github.com/Qiupi3/Shell-Setup/archive/refs/heads/main.tar.gz; then
         echo "  ✗ Failed to download Shell-Setup." >&2
         exit 1
     fi
+    if ! "$BOOTSTRAP_TAR" -xzf "$BOOTSTRAP_ARCHIVE" -C "$BOOTSTRAP_DIR"; then
+        echo "  ✗ Failed to extract Shell-Setup." >&2
+        exit 1
+    fi
+    rm -f "$BOOTSTRAP_ARCHIVE"
 
     BOOTSTRAP_REPO="$BOOTSTRAP_DIR/Shell-Setup-main"
     if [[ ! -f "$BOOTSTRAP_REPO/install.bash" ]]; then
@@ -139,13 +200,23 @@ if [[ ! -d "$REPO_DIR/zsh" ]]; then
     fi
 
     # A piped script has no usable stdin. Prefer the controlling terminal so
-    # the interactive menu and the extension picker still work.
+    # the interactive menu and the extension picker still work. Without a
+    # terminal, use /dev/null so a prompt cannot consume the remaining bytes
+    # of this very script from the pipe.
     if [[ -t 0 ]]; then
         bash "$BOOTSTRAP_REPO/install.bash" "$@" || BOOTSTRAP_RC=$?
     elif (exec </dev/tty) 2>/dev/null; then
         bash "$BOOTSTRAP_REPO/install.bash" "$@" </dev/tty || BOOTSTRAP_RC=$?
     else
-        bash "$BOOTSTRAP_REPO/install.bash" "$@" || BOOTSTRAP_RC=$?
+        bash "$BOOTSTRAP_REPO/install.bash" "$@" </dev/null || BOOTSTRAP_RC=$?
+    fi
+
+    # The parent `curl` may still be writing the rest of this script into our
+    # stdin. Read it to EOF before exiting; otherwise curl reports
+    # "(23) Failure writing output to destination" on an otherwise successful
+    # installation.
+    if [[ ! -t 0 ]]; then
+        cat >/dev/null 2>&1 || true
     fi
 
     exit "$BOOTSTRAP_RC"
@@ -789,6 +860,11 @@ install_git_helpers() {
         cp "$REPO_DIR/zsh/customizeGit.bash" "$ZSH_DIR/customizeGit.bash"
         chmod 755 "$ZSH_DIR/customizeGit.bash"
     fi
+
+    # The generated account wrappers only exist inside a zsh session. Make
+    # sure ~/.zshrc loads ~/.zsh/*.zsh even when the Git module is run on its
+    # own, instead of silently installing functions that never get sourced.
+    patch_zshrc
 }
 
 # Old installs may contain HTML-style comments copied from the template.
@@ -839,21 +915,84 @@ install_git_ssh() {
     install_git_helpers
     install_ssh_files
 
+    # Accounts must exist before keys are created: setup.bash names keys,
+    # SSH hosts, and signing entries after the account list. Doing SSH first
+    # (the old order) created keys that were not attached to any account and
+    # made the account manager ask for the same information again.
+    local count
+    count="$(account_entry_count)"
+
     echo
-    if confirm "  Run the SSH key audit and setup now?" y; then
-        if bash "$HOME/.ssh/setup.bash"; then
-            info "SSH setup finished."
-        else
-            warn "SSH setup ended without completing."
-            warn "Re-run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
-        fi
+    info "$(bold "Step 1 of 2") — Git accounts and clone wrappers"
+    if (( count > 0 )); then
+        info "Found $(bold "$count") configured account(s)."
+    fi
+
+    local account_default="y"
+    (( count > 0 )) && account_default="n"
+    if confirm "  Open the Git account manager now?" "$account_default"; then
+        SHELL_SETUP_NO_SSH_PROMPT=1 setup_git_accounts
     else
-        info "Skipped. Run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+        info "Skipped the account manager."
+    fi
+
+    count="$(account_entry_count)"
+    if (( count > 0 )); then
+        sync_git_wrappers
     fi
 
     echo
-    if confirm "  Manage Git account wrappers now (customizeGit)?" y; then
-        setup_git_accounts
+    info "$(bold "Step 2 of 2") — SSH keys and commit signing"
+    if (( count == 0 )); then
+        warn "No Git accounts are configured yet, so keys would have nothing to attach to."
+        info "Add accounts with $(bold "git-accounts"), then run $(bold "ssh-setup")."
+        return 0
+    fi
+
+    if confirm "  Set up SSH keys for your ${count} account(s) now?" y; then
+        run_ssh_setup
+    else
+        info "Skipped. Run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+    fi
+}
+
+# Number of real (non-comment, non-blank) entries in the account list.
+account_entry_count() {
+    local file="$HOME/.config/git/accountList"
+    [[ -f "$file" ]] || { echo 0; return 0; }
+    awk '
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*$/ { next }
+        { count++ }
+        END { print count + 0 }
+    ' "$file"
+}
+
+# Regenerate ~/.zsh/git-custom.zsh from the account list without opening the
+# interactive manager. Keeps clone wrappers available when Option 3 is run on
+# an existing account list (for example after a fresh install or an update).
+sync_git_wrappers() {
+    local customizer="$HOME/.zsh/customizeGit.bash"
+    [[ -f "$customizer" ]] || return 0
+    SHELL_SETUP_NO_SSH_PROMPT=1 bash "$customizer" --sync >/dev/null 2>&1 || return 0
+}
+
+# Run the SSH helper once, with a consistent success/failure message.
+run_ssh_setup() {
+    if [[ ! -f "$HOME/.ssh/setup.bash" ]]; then
+        install_ssh_files
+    fi
+    if [[ ! -f "$HOME/.ssh/setup.bash" ]]; then
+        err "~/.ssh/setup.bash not found."
+        return 1
+    fi
+
+    if bash "$HOME/.ssh/setup.bash"; then
+        info "SSH setup finished."
+    else
+        warn "SSH setup ended without completing."
+        warn "Re-run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+        return 1
     fi
 }
 
@@ -939,6 +1078,32 @@ $MANAGED_END
 BLOCK
 }
 
+# ~/.zshrc is zsh syntax. A guard at the top turns the confusing bash errors
+# ("setopt: command not found", "parse error near '('") into a clear hint when
+# someone runs `source ~/.zshrc` from bash. Applied to newly created files and
+# to existing files during an update.
+ensure_zshrc_guard() {
+    [[ -f "$ZSHRC" ]] || return 0
+    grep -qF '~/.zshrc is a zsh configuration' "$ZSHRC" && return 0
+
+    local tmp
+    tmp="$(mktemp)"
+    {
+        cat <<'GUARD'
+# This file is zsh-only. Sourcing it from bash produces confusing
+# "setopt: command not found" and "parse error near '('" messages, so stop
+# early with a useful hint instead.
+if [ -n "${BASH_VERSION:-}" ]; then
+    echo "~/.zshrc is a zsh configuration. Start zsh with: exec zsh" >&2
+    return 1 2>/dev/null || exit 1
+fi
+
+GUARD
+        cat "$ZSHRC"
+    } > "$tmp"
+    mv "$tmp" "$ZSHRC"
+}
+
 patch_zshrc() {
     info "Checking ~/.zshrc configuration..."
 
@@ -954,6 +1119,7 @@ patch_zshrc() {
             info "Creating new ~/.zshrc with module sourcing block"
             echo "$source_block" > "$ZSHRC"
         fi
+        ensure_zshrc_guard
         return
     fi
 
@@ -975,12 +1141,14 @@ patch_zshrc() {
         echo "$source_block" >> "$tmp.clean"
         mv "$tmp.clean" "$ZSHRC"
         rm -f "$tmp"
+        ensure_zshrc_guard
         return
     fi
 
     # Case 3: ~/.zshrc already sources ~/.zsh/*.zsh (custom or pre-existing loop)
     if grep -qE '(~/\.zsh/\*\.zsh|\$HOME/\.zsh/\*\.zsh|\$ZSH_DIR/\*\.zsh)' "$ZSHRC"; then
         info "~/.zshrc is already configured to source ~/.zsh/*.zsh modules. No changes needed."
+        ensure_zshrc_guard
         return
     fi
 
@@ -993,6 +1161,7 @@ patch_zshrc() {
     [[ -s "$tmp" ]] && echo "" >> "$tmp"
     echo "$source_block" >> "$tmp"
     mv "$tmp" "$ZSHRC"
+    ensure_zshrc_guard
 }
 
 # ---------------------------------------------------------------------------
@@ -1031,6 +1200,7 @@ patch_zshrc_editor() {
 
     mv "$tmp.clean" "$ZSHRC"
     rm -f "$tmp"
+    ensure_zshrc_guard
 
     info "EDITOR/VISUAL block written to ~/.zshrc"
 }
@@ -1134,13 +1304,14 @@ install_opencode_ext() {
         info "OpenCode installed: $(opencode --version 2>/dev/null || echo "opencode")"
     else
         warn "OpenCode was installed to ~/.opencode/bin but is not on PATH yet."
-        warn "Restart your shell to pick up the updated PATH."
+        warn "Run $(bold "exec zsh") (or restart your shell) to pick up the updated PATH."
     fi
     configure_extension_post opencode
 }
 
 # Direct installer kept for the legacy --antigravity flag.
 install_antigravity() {
+    install_paths_module
     install_antigravity_ext || warn "Antigravity CLI installation did not complete."
 }
 
@@ -1221,7 +1392,7 @@ install_uv_ext() {
         info "uv installed: $(uv --version 2>/dev/null || echo "uv")"
     else
         warn "uv was installed but not on PATH yet."
-        warn "Restart your shell or add ~/.local/bin to PATH."
+        warn "Run $(bold "exec zsh") (or restart your shell) to pick up ~/.local/bin."
     fi
 }
 
@@ -1244,7 +1415,7 @@ install_bun_ext() {
         info "Bun installed: $(bun --version 2>/dev/null || echo "bun")"
     else
         warn "Bun was installed to ~/.bun/bin but not on PATH yet."
-        warn "Restart your shell or add ~/.bun/bin to PATH."
+        warn "Run $(bold "exec zsh") (or restart your shell) to pick up ~/.bun/bin."
     fi
 }
 
@@ -1277,7 +1448,7 @@ install_pnpm_ext() {
     if cmd_exists pnpm; then
         info "pnpm installed: $(pnpm --version 2>/dev/null || echo "pnpm")"
     else
-        warn "pnpm installed but not on PATH yet. Restart your shell."
+        warn "pnpm installed but not on PATH yet. Run $(bold "exec zsh") (or restart your shell)."
     fi
 }
 
@@ -1299,7 +1470,7 @@ install_deno_ext() {
     if cmd_exists deno; then
         info "Deno installed: $(deno --version 2>/dev/null | head -n1 || echo "deno")"
     else
-        warn "Deno installed to ~/.deno/bin but not on PATH yet. Restart your shell."
+        warn "Deno installed to ~/.deno/bin but not on PATH yet. Run $(bold "exec zsh") (or restart your shell)."
     fi
 }
 
@@ -1357,6 +1528,21 @@ ext_installed() {
         pkg_installed "$pkg" || return 1
     done
     return 0
+}
+
+# Install the persistent PATH module and make sure ~/.zshrc sources ~/.zsh/.
+# Extension-only runs (--ext ...) do not call install_shell_configs, so tools
+# installed into ~/.local/bin, ~/.bun/bin, etc. would otherwise vanish after
+# `exec zsh`.
+install_paths_module() {
+    mkdir -p "$ZSH_DIR"
+    if [[ -f "$REPO_DIR/zsh/paths.zsh" ]]; then
+        if [[ ! -f "$ZSH_DIR/paths.zsh" ]] \
+            || ! cmp -s "$REPO_DIR/zsh/paths.zsh" "$ZSH_DIR/paths.zsh"; then
+            cp "$REPO_DIR/zsh/paths.zsh" "$ZSH_DIR/paths.zsh"
+        fi
+    fi
+    patch_zshrc
 }
 
 configure_extension_post() {
@@ -1442,6 +1628,7 @@ configure_extension_post() {
 
 install_ext_ids() {
     local id idx pkg fn
+    install_paths_module
     for id in "$@"; do
         if ! idx="$(ext_index "$id")"; then
             warn "Unknown extension: $id"
@@ -1811,13 +1998,8 @@ setup_ssh() {
 
     install_ssh_files
 
-    if [[ ! -f "$HOME/.ssh/setup.bash" ]]; then
-        err "~/.ssh/setup.bash not found."
-        return 1
-    fi
-
     if confirm "  Run the interactive SSH key setup now?" y; then
-        bash "$HOME/.ssh/setup.bash"
+        run_ssh_setup
     else
         info "Skipped SSH key generation."
         info "You can run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
@@ -1834,7 +2016,7 @@ interactive_menu() {
     echo
     echo "    1) Shell environment   — Zsh, aliases, plugins, ~/.zshrc"
     echo "    2) Neovim editor       — config, EDITOR/VISUAL, git core.editor"
-    echo "    3) Git accounts & SSH  — audit keys, signing, clone wrappers"
+    echo "    3) Git accounts & SSH  — accounts, SSH keys, clone wrappers"
     echo "    4) Extensions          — multi-select languages and CLI tools"
     echo "    5) Everything          — run 1 → 2 → 3 → 4"
     echo "    q) Quit"
@@ -2008,10 +2190,12 @@ main() {
                     ;;
                 --git-accounts)
                     setup_git_accounts
+                    patch_zshrc
                     shift
                     ;;
                 --git-aliases|--submodules)
                     setup_git_aliases
+                    patch_zshrc
                     shift
                     ;;
                 --extensions)
@@ -2045,7 +2229,12 @@ main() {
 
     echo
     info "$(green "Done!")"
-    info "Restart your terminal or run: $(bold "source ~/.zshrc")"
+    if cmd_exists zsh; then
+        info "Load the new configuration now: $(bold "exec zsh")"
+        info "or restart your terminal. $(dim "(Do not run 'source ~/.zshrc' from bash.)")"
+    else
+        info "Restart your terminal to load the new configuration."
+    fi
 }
 
 main "$@"

@@ -48,13 +48,13 @@ chmod 700 ~/.ssh
 
 #### Recommended: Ed25519
 ```bash
-ssh-keygen -t ed25519 -C "your_email@example.com" -f ~/.ssh/id_ed25519
+ssh-keygen -t ed25519 -C "your_email@example.com" -f ~/.ssh/<Account>
 ```
 
 Set secure permissions:
 ```bash
-chmod 600 ~/.ssh/id_ed25519
-chmod 644 ~/.ssh/id_ed25519.pub
+chmod 600 ~/.ssh/<Account>
+chmod 644 ~/.ssh/<Account>.pub
 ```
 
 ---
@@ -82,7 +82,7 @@ chmod 644 ~/.ssh/id_ed25519.pub
 2. Click **New SSH key**.
 3. View or copy your public key:
    ```bash
-   cat ~/.ssh/id_ed25519.pub
+   cat ~/.ssh/<Account>.pub
    ```
 4. Paste the key content into the "Key" field.
 5. In **Key type**:
@@ -111,7 +111,7 @@ Configure Git to sign commits with SSH globally (to do so locally, remove the `-
 
 ```bash
 git config --global gpg.format ssh
-git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global user.signingkey ~/.ssh/<Account>_Signing.pub
 git config --global commit.gpgsign true
 git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers
 ```

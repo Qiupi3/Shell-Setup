@@ -132,9 +132,10 @@ The installer detects the proot container, re-executes itself with the
 container's native `/bin/bash`, clears inherited Termux/Android environment
 variables, and puts the guest's binaries ahead of the bind-mounted Termux ones.
 Termux's `curl` and `tar` remain available as a fallback for the self-bootstrap
-download, but Git and SSH use the guest tools. In particular, Option 3 installs
-the guest `openssh-client`: Termux's `ssh` resolves `~/.ssh` through Android's
-home and cannot see keys stored in the container's `$HOME/.ssh`.
+download, but Git, SSH, and zsh use the guest tools. Option 1 installs the guest
+`zsh` and Option 3 installs the guest `openssh-client`: Termux's `ssh` resolves
+`~/.ssh` through Android's home and cannot see keys stored in the container's
+`$HOME/.ssh`.
 
 If your login shell resolves `bash` to Termux's Android binary, run the
 one-liner with the container's shell explicitly:

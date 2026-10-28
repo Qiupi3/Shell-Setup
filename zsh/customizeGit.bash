@@ -166,8 +166,7 @@ ${s}_vConfig() {
     local _candidate
     for _candidate in \\
         "\$HOME/.ssh/${u}_Signing.pub" \\
-        "\$HOME/.ssh/${u}.pub" \\
-        "\$HOME/.ssh/id_ed25519.pub"; do
+        "\$HOME/.ssh/${u}.pub"; do
         if [[ -f "\$_candidate" ]]; then
             _sign_key="\$_candidate"
             break

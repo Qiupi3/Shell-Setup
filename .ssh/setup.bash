@@ -288,12 +288,11 @@ setup_single_account() {
         touch "$ssh_config_file"
         chmod 600 "$ssh_config_file"
 
-        if [[ "$user" != "id_ed25519" ]]; then
-            header "Configuring SSH Host in ~/.ssh/config"
-            local host_alias="github.com-$user"
-            if ! grep -q "Host $host_alias" "$ssh_config_file" 2>/dev/null; then
-                info "Adding Host $host_alias to ~/.ssh/config..."
-                cat <<EOF >> "$ssh_config_file"
+        header "Configuring SSH Host in ~/.ssh/config"
+        local host_alias="github.com-$user"
+        if ! grep -q "Host $host_alias" "$ssh_config_file" 2>/dev/null; then
+            info "Adding Host $host_alias to ~/.ssh/config..."
+            cat <<EOF >> "$ssh_config_file"
 
 # Custom SSH Host for $user
 Host $host_alias
@@ -301,12 +300,9 @@ Host $host_alias
     User git
     IdentityFile $auth_key
 EOF
-                info "Added $(bold "$host_alias") with IdentityFile $(bold "$auth_key") to ~/.ssh/config"
-            else
-                info "Host $(bold "$host_alias") already exists in ~/.ssh/config"
-            fi
+            info "Added $(bold "$host_alias") with IdentityFile $(bold "$auth_key") to ~/.ssh/config"
         else
-            info "Default key id_ed25519 is used automatically by OpenSSH; skipping ~/.ssh/config host entry."
+            info "Host $(bold "$host_alias") already exists in ~/.ssh/config"
         fi
     fi
 
@@ -417,10 +413,8 @@ EOF
         echo "  4. Add Signing key ($sign_key.pub) as 'Signing Key'"
     fi
     if [[ -n "$auth_key" ]]; then
-        local verify_host="github.com-$user"
-        [[ "$user" == "id_ed25519" ]] && verify_host="github.com"
         echo
-        info "After adding the key on GitHub, verify with: $(bold "ssh -T git@$verify_host")"
+        info "After adding the key on GitHub, verify with: $(bold "ssh -T git@github.com-$user")"
     fi
     echo
     info "$(green "Completed SSH setup for $user!")"
@@ -916,10 +910,11 @@ main() {
             read -r -p "  Enter email: " email
         done
 
-        local default_key="id_ed25519"
         local user=""
-        read -r -p "  Enter username or key-pair name [default: $default_key]: " user
-        user="${user:-$default_key}"
+        while [[ -z "$user" ]]; do
+            read -r -p "  Enter username or key-pair name: " user || return 1
+            [[ -z "$user" ]] && warn "Username cannot be empty."
+        done
 
         selected_users=("$user")
         selected_emails=("$email")

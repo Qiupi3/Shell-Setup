@@ -104,9 +104,9 @@ Option 3 runs in two orders that match the generated files:
    regenerated afterwards. A single configured account is selected
    automatically instead of asking you to pick "1" from a one-item menu.
 
-`<short>_vConfig` looks for `<Username>_Signing.pub`, then `<Username>.pub`, then
-`id_ed25519.pub`, so it also works with unified keys and auth-only keys used for
-signing.
+`<short>_vConfig` looks for `<Username>_Signing.pub`, then `<Username>.pub`, so
+it works with both separate signing keys and unified/auth-only keys. It fails
+with a clear message instead of silently using an unrelated default key.
 
 ### Android proot-distro (Ubuntu or Debian)
 

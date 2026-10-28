@@ -1114,8 +1114,12 @@ install_opencode_ext() {
         return 1
     fi
 
+    export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
+    mkdir -p "$HOME/.opencode/bin" 2>/dev/null || true
+
     if cmd_exists opencode; then
         info "OpenCode — $(green "already installed") ($(opencode --version 2>/dev/null || echo "installed"))"
+        configure_extension_post opencode
         return 0
     fi
 
@@ -1125,13 +1129,14 @@ install_opencode_ext() {
         return 1
     fi
 
-    export PATH="$HOME/.opencode/bin:$PATH"
+    export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
     if cmd_exists opencode; then
         info "OpenCode installed: $(opencode --version 2>/dev/null || echo "opencode")"
     else
         warn "OpenCode was installed to ~/.opencode/bin but is not on PATH yet."
         warn "Restart your shell to pick up the updated PATH."
     fi
+    configure_extension_post opencode
 }
 
 # Direct installer kept for the legacy --antigravity flag.
@@ -1356,6 +1361,10 @@ ext_installed() {
 
 configure_extension_post() {
     local id="$1"
+    # Ensure common bin dirs are on PATH
+    export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share/pnpm:$PATH"
+    mkdir -p "$HOME/.local/bin" "$HOME/.opencode/bin" 2>/dev/null || true
+
     case "$id" in
         git-delta)
             if cmd_exists delta; then
@@ -1387,7 +1396,7 @@ configure_extension_post() {
         bat)
             if cmd_exists bat || cmd_exists batcat; then
                 if ! cmd_exists bat && cmd_exists batcat; then
-                    ln -sf "$(command -v batcat)" /usr/local/bin/bat 2>/dev/null || ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat" 2>/dev/null || true
+                    ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat" 2>/dev/null || ln -sf "$(command -v batcat)" /usr/local/bin/bat 2>/dev/null || true
                 fi
                 info "bat installed. Use 'bat' for syntax-highlighted cat output."
             fi
@@ -1403,14 +1412,28 @@ configure_extension_post() {
             fi
             ;;
         opencode)
-            if cmd_exists opencode; then
-                info "OpenCode installed. Configure via its CLI or config files as needed."
+            if cmd_exists opencode || [ -x "$HOME/.opencode/bin/opencode" ]; then
+                export PATH="$HOME/.opencode/bin:$PATH"
+                info "OpenCode installed and PATH updated for this session."
             fi
             ;;
         antigravity)
             if cmd_exists agy; then
-                info "Antigravity CLI installed. Run 'agy' to get started."
+                export PATH="$HOME/.local/bin:$PATH"
+                info "Antigravity CLI installed and PATH updated for this session."
             fi
+            ;;
+        uv)
+            export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+            ;;
+        bun)
+            export PATH="$HOME/.bun/bin:$PATH"
+            ;;
+        pnpm)
+            export PATH="$HOME/.local/share/pnpm:$PATH"
+            ;;
+        deno)
+            export PATH="$HOME/.deno/bin:$PATH"
             ;;
         *)
             ;;
@@ -1913,6 +1936,8 @@ main() {
     if [[ -d /data/data/com.termux/files/usr/bin ]]; then
         export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/sbin:$PATH"
     fi
+    export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.deno/bin:$HOME/.local/share/pnpm:$PATH"
+    mkdir -p "$HOME/.local/bin" "$HOME/.opencode/bin" 2>/dev/null || true
     detect_env
 
     if [[ $# -eq 0 ]]; then

@@ -130,10 +130,11 @@ cd Shell-Setup
 
 The installer detects the proot container, re-executes itself with the
 container's native `/bin/bash`, clears inherited Termux/Android environment
-variables, and uses the container's own `apt`, `git`, `zsh`, and other tools.
-After sanitising the inherited `PATH`, it can still fall back to Termux's
-`curl` and `tar` through the bind mount, so the self-bootstrap download keeps
-working even when the guest image has no curl of its own.
+variables, and puts the guest's binaries ahead of the bind-mounted Termux ones.
+Termux's `curl` and `tar` remain available as a fallback for the self-bootstrap
+download, but Git and SSH use the guest tools. In particular, Option 3 installs
+the guest `openssh-client`: Termux's `ssh` resolves `~/.ssh` through Android's
+home and cannot see keys stored in the container's `$HOME/.ssh`.
 
 If your login shell resolves `bash` to Termux's Android binary, run the
 one-liner with the container's shell explicitly:
@@ -146,6 +147,36 @@ After installation, run `exec zsh` **inside the same proot-distro session** to
 load the aliases, Git functions, prompt, and tool paths immediately. `sudo` is
 not required inside proot-distro because the login user is root; on a normal
 Debian/Ubuntu desktop the installer uses `sudo` when needed.
+
+#### `Permission denied (publickey)` inside proot-distro
+
+1. Confirm the client is the guest one, not Termux's:
+
+   ```bash
+   command -v ssh          # must be /usr/bin/ssh, not /data/data/com.termux/...
+   ssh -T git@github.com-<Username>
+   ```
+
+   If it points at Termux, install the guest client and try again:
+
+   ```bash
+   apt-get update && apt-get install -y openssh-client
+   ```
+
+2. Compare the local fingerprint with GitHub → **Settings → SSH and GPG keys**:
+
+   ```bash
+   ssh-keygen -lf ~/.ssh/<Username>.pub
+   ```
+
+3. The key must be added to the GitHub account that owns the repository as an
+   **Authentication Key**. An SSH **Signing Key** alone cannot clone or push.
+   Re-running the setup with a new key means the new public key must be added
+   again; the fingerprint printed here is the one GitHub must show.
+
+SSH error messages always print the real `HostName` (`git@github.com`), even
+when the remote uses the `github.com-<Username>` alias. That text does not mean
+the alias was ignored.
 
 ### Command-Line Flags
 

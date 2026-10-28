@@ -30,6 +30,20 @@ fi
 # =============================================================================
 set -euo pipefail
 
+# In proot-distro the Termux prefix is bind-mounted into the guest. Prefer the
+# guest's own binaries: Termux's ssh resolves ~/.ssh through Android's home
+# (/data/data/com.termux/files/home), not $HOME, so it cannot see keys written
+# by this script.
+if [[ -n "${PD_CONTAINER:-}" || "${container:-}" == "proot-distro" ]]; then
+    _guest_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    if [[ -d /data/data/com.termux/files/usr/bin ]]; then
+        export PATH="$_guest_path:/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/sbin"
+    else
+        export PATH="$_guest_path"
+    fi
+    unset _guest_path
+fi
+
 # -----------------------------------------------------------------------------
 # Formatting Helpers
 # -----------------------------------------------------------------------------
@@ -348,6 +362,9 @@ EOF
         echo "$(bold "----------------------------------------------------------------------")"
         echo "$auth_pub"
         echo "$(bold "----------------------------------------------------------------------")"
+        local auth_fp=""
+        auth_fp="$(ssh-keygen -lf "$auth_key.pub" 2>/dev/null | awk '{print $2}' || true)"
+        [[ -n "$auth_fp" ]] && info "Fingerprint: $(bold "$auth_fp")"
 
         if copy_to_clipboard "$auth_pub"; then
             info "$(green "Copied public key to clipboard!")"
@@ -367,6 +384,9 @@ EOF
         echo "$(bold "----------------------------------------------------------------------")"
         echo "$sign_pub"
         echo "$(bold "----------------------------------------------------------------------")"
+        local sign_fp=""
+        sign_fp="$(ssh-keygen -lf "$sign_key.pub" 2>/dev/null | awk '{print $2}' || true)"
+        [[ -n "$sign_fp" ]] && info "Fingerprint: $(bold "$sign_fp")"
 
         local copy_sign="y"
         if [[ -n "$auth_key" ]]; then
@@ -395,6 +415,12 @@ EOF
     else
         echo "  3. Add Authentication key ($auth_key.pub) as 'Authentication Key'"
         echo "  4. Add Signing key ($sign_key.pub) as 'Signing Key'"
+    fi
+    if [[ -n "$auth_key" ]]; then
+        local verify_host="github.com-$user"
+        [[ "$user" == "id_ed25519" ]] && verify_host="github.com"
+        echo
+        info "After adding the key on GitHub, verify with: $(bold "ssh -T git@$verify_host")"
     fi
     echo
     info "$(green "Completed SSH setup for $user!")"
@@ -745,6 +771,21 @@ sync_git_custom() {
 # -----------------------------------------------------------------------------
 main() {
     header "SSH Key & Git Signing Setup"
+
+    # A Termux ssh client inside proot reads the Android home instead of
+    # $HOME, so keys created below would be invisible to Git. Stop with an
+    # actionable message rather than generating unusable keys.
+    local ssh_client
+    ssh_client="$(command -v ssh 2>/dev/null || true)"
+    if [[ ( -n "${PD_CONTAINER:-}" || "${container:-}" == "proot-distro" ) \
+        && "$ssh_client" == /data/data/com.termux/* ]]; then
+        err "This proot guest is using Termux's ssh ($ssh_client)."
+        err "That client reads /data/data/com.termux/files/home/.ssh, not $HOME/.ssh."
+        info "Install the guest OpenSSH client first:"
+        info "  apt-get update && apt-get install -y openssh-client"
+        info "Then re-run: $(bold "bash ~/.ssh/setup.bash")"
+        return 1
+    fi
 
     local ssh_dir="$HOME/.ssh"
     if [[ ! -d "$ssh_dir" ]]; then

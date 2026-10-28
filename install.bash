@@ -573,9 +573,19 @@ pkg_installed() {
     if [[ "$PKG_MANAGER" == "apt" ]] && dpkg -s "$pkg" &>/dev/null 2>&1; then
         return 0
     fi
-    local cmd
+    local cmd path
     cmd="$(pkg_command "$pkg")"
-    [[ -n "$cmd" ]] && cmd_exists "$cmd"
+    [[ -n "$cmd" ]] || return 1
+    path="$(command -v "$cmd" 2>/dev/null || true)"
+    [[ -n "$path" ]] || return 1
+    # In proot-distro the Termux prefix is bind-mounted into the guest, so its
+    # binaries appear on PATH. They are not substitutes for guest packages:
+    # Termux's ssh reads /data/data/.../home/.ssh instead of $HOME/.ssh, which
+    # makes keys created by the installer invisible to Git.
+    if [[ "$PKG_MANAGER" == "apt" && "$path" == /data/data/com.termux/* ]]; then
+        return 1
+    fi
+    return 0
 }
 
 pkg_ensure() {
@@ -728,8 +738,9 @@ install_shell_configs() {
 
     mkdir -p "$ZSH_DIR"
 
-    # git is needed to clone the syntax-highlighting plugin.
-    cmd_exists git || pkg_ensure git
+    # git is needed to clone the syntax-highlighting plugin. Use the guest
+    # package inside proot; Termux's git only counts as installed in Termux.
+    pkg_installed git || pkg_ensure git
 
     if [[ -d "$REPO_DIR/zsh" ]]; then
         info "Copying zsh modules from $(bold "$REPO_DIR/zsh/") → ~/.zsh/"
@@ -911,6 +922,9 @@ install_git_ssh() {
     header "Git Accounts & SSH"
 
     ensure_pkgs $(ssh_dep_pkgs)
+    # In proot, a Termux git is visible on PATH but the guest should own the
+    # Git operations that write ~/.gitconfig and call ~/.ssh/config.
+    pkg_installed git || pkg_ensure git
     setup_gitconfig
     install_git_helpers
     install_ssh_files
@@ -2114,13 +2128,21 @@ EOF
 # Main Entrypoint
 # ---------------------------------------------------------------------------
 main() {
-    # Ensure common package manager paths are available (Termux/Android)
-    if [[ -d /data/data/com.termux/files/usr/bin ]]; then
+    detect_env
+
+    # Make the environment's own binaries win. In proot-distro, Termux's
+    # bind-mounted tools are only a fallback: its ssh/ssh-keygen resolve
+    # ~/.ssh through the Android home, not $HOME, so they must never shadow
+    # the guest's openssh-client.
+    if [[ "$IS_PROOT_DISTRO" -eq 1 ]]; then
+        if [[ -d /data/data/com.termux/files/usr/bin ]]; then
+            export PATH="$PATH:/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/sbin"
+        fi
+    elif [[ -d /data/data/com.termux/files/usr/bin ]]; then
         export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/sbin:$PATH"
     fi
     export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.deno/bin:$HOME/.local/share/pnpm:$PATH"
     mkdir -p "$HOME/.local/bin" "$HOME/.opencode/bin" 2>/dev/null || true
-    detect_env
 
     if [[ $# -eq 0 ]]; then
         interactive_menu

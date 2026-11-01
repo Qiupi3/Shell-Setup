@@ -98,7 +98,8 @@ Option 3 runs in two orders that match the generated files:
    `USERNAME:EMAIL:SHORTNAME` first. On a fresh setup it goes straight to the
    first "Add account" prompt; when accounts already exist the manager is
    optional (default: skip). Saving regenerates `~/.zsh/git-custom.zsh` with
-   `<short>GClone`, `<short>_gConfig`, and `<short>_vConfig`.
+   `<short>GClone`, `<short>goa`, `<short>goan`, `<short>_gConfig`, and
+   `<short>_vConfig`.
 2. **SSH keys and signing** — runs `ssh-setup` once. Keys are named after the
    accounts, added to `~/.ssh/config` / `allowed_signers`, and the wrappers are
    regenerated afterwards. A single configured account is selected
@@ -366,11 +367,13 @@ custom-git
 1. **Interactive TUI**: View all configured accounts, add new accounts, edit existing accounts, or delete accounts.
 2. **Auto-Generates Custom Functions**: Dynamically writes `~/.zsh/git-custom.zsh` for each account:
    - `<short>GClone`: Multi-account SSH-based clone wrapper (e.g. `workGClone`)
+   - `<short>goan`: Adds `origin` with the account's SSH host alias (e.g. `workgoan Owner/Repo`)
+   - `<short>goa`: Adds a named remote with the account's SSH host alias (e.g. `workgoa upstream Owner/Repo`)
    - `<short>_gConfig`: Configures repo-local user name and email
    - `<short>_vConfig`: Configures repo-local SSH commit signing key
 3. **Structured Account List**: Records accounts in `~/.config/git/accountList` (format: `USERNAME:EMAIL:SHORTNAME`). The repo template contains no real accounts.
 4. **Repository stays clean**: every write goes to `$HOME`. `customizeGit.bash` never modifies the cloned repository, so account data cannot leak to another user or the next `git pull`.
-5. **Generic helpers**: `gClone` and `reset_vConfig` live in `~/.zsh/git-functions.zsh` and contain no account data.
+5. **Generic helpers**: `gClone`, `gAddRemote`, and `reset_vConfig` live in `~/.zsh/git-functions.zsh` and contain no account data.
 6. **Seamless SSH transition**: when run from Option 3, the installer handles SSH setup right after the account list, so keys are always attached to a known account. Standalone `git-accounts` still offers SSH setup on exit (set `SHELL_SETUP_NO_SSH_PROMPT=1` to suppress it).
 7. **Path setup**: `~/.zsh/paths.zsh` adds per-user tool directories (`~/.local/bin`, OpenCode, Bun, Cargo, Deno, pnpm, Antigravity) so new zsh sessions find them.
 

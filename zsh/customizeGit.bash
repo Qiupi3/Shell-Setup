@@ -18,7 +18,8 @@ fi
 #   - View configured Git accounts
 #   - Add, edit, or delete accounts
 #   - Automatically generates wrapper functions in git-custom.zsh:
-#       <short>GClone(), <short>_gConfig(), <short>_vConfig()
+#       <short>GClone(), <short>goa(), <short>goan(),
+#       <short>_gConfig(), <short>_vConfig()
 #   - Saves account entries to ~/.config/git/accountList
 #   - Offers to trigger SSH key setup (.ssh/setup.bash) directly
 # =============================================================================
@@ -135,10 +136,10 @@ generate_git_custom_zsh() {
 
     cat <<'BASE_EOF' > "$tmp_file"
 # ============================================================
-# Account Specific Git Configurations & Clone Wrappers
+# Account Specific Git Configurations, Clone & Remote Wrappers
 # Generated locally by customizeGit.bash — DO NOT edit by hand.
 #
-# Generic helpers (EQLINE, reset_vConfig, gClone) live in
+# Generic helpers (EQLINE, reset_vConfig, gClone, gAddRemote) live in
 # ~/.zsh/git-functions.zsh, installed by the Shell module.
 # ============================================================
 BASE_EOF
@@ -188,6 +189,18 @@ ${s}_vConfig() {
 ${s}GClone() {
     gClone "${u}" "${s}_gConfig" "\$@"
 }
+
+# ${s}goa function
+# Add a named remote using the ${u} SSH host alias (git@github.com-${u}:...)
+${s}goa() {
+    gAddRemote --account "${u}" "\$@"
+}
+
+# ${s}goan function
+# Add "origin" using the ${u} SSH host alias (git@github.com-${u}:...)
+${s}goan() {
+    gAddRemote --account "${u}" origin "\$@"
+}
 ACC_EOF
     done
 
@@ -231,6 +244,7 @@ display_accounts() {
         printf "      Email    : %s\n" "$e"
         printf "      Shortname: %s\n" "$(bold "$s")"
         printf "      Functions: %s, %s, %s\n" "$(green "${s}GClone")" "$(green "${s}_gConfig")" "$(green "${s}_vConfig")"
+        printf "      Remotes  : %s, %s\n" "$(green "${s}goa")" "$(green "${s}goan")"
         echo
     done
 }

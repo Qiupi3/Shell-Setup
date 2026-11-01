@@ -144,3 +144,10 @@ Or use the built-in clone helper:
 ```bash
 workGClone Owner/Repo
 ```
+
+To attach a remote to an existing local repository, use the account's
+generated remote helpers:
+```bash
+workgoan Owner/Repo              # adds origin
+workgoa upstream Owner/Repo      # adds a named remote
+```

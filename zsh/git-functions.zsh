@@ -2,8 +2,8 @@
 # Installed to ~/.zsh/git-functions.zsh by the Shell / Git modules.
 #
 # This file intentionally contains NO account data. Account-specific wrappers
-# (<short>GClone, <short>_gConfig, <short>_vConfig) are generated locally into
-# ~/.zsh/git-custom.zsh by customizeGit.bash.
+# (<short>GClone, <short>goa, <short>goan, <short>_gConfig, <short>_vConfig)
+# are generated locally into ~/.zsh/git-custom.zsh by customizeGit.bash.
 
 # EQLINE function
 EQLINE() {
@@ -138,6 +138,120 @@ gClone() {
 
     echo
     echo "Done."
+
+    EQLINE
+}
+
+# ============================================================
+# Custom gAddRemote function using SSH (Host) based Git Remotes
+#
+# Account-aware form (used by <short>goa and <short>goan wrappers):
+#   gAddRemote --account <account> <remote> <repo>
+#
+# Direct form (no account context, plain git@github.com):
+#   gAddRemote <remote> <user/repo>
+#   gAddRemote <remote> <https://github.com/user/repo>
+#   gAddRemote <remote> <git@github.com:user/repo.git>
+#   gAddRemote <remote> <user> <repo>
+# ============================================================
+gAddRemote() {
+    EQLINE
+    echo "Adding Git Remote"
+
+    local ACCOUNT=""
+
+    # Account-aware form only when explicitly requested by a generated wrapper.
+    if [[ "${1:-}" == "--account" ]]; then
+        ACCOUNT="${2:-}"
+        shift 2
+    fi
+
+    local REMOTE_NAME="${1:-}"
+
+    if [[ $# -lt 2 || -z "$REMOTE_NAME" ]]; then
+        echo "Usage:"
+        echo "  <account>goa <remote> <repo>"
+        echo "  <account>goan <repo>"
+        echo "  <account>goa <remote> <user> <repo>"
+        echo "  <account>goa <remote> <user/repo>"
+        echo "  <account>goa <remote> <https://github.com/user/repo>"
+        echo "  <account>goa <remote> <git@github.com:user/repo.git>"
+        return 1
+    fi
+
+    shift
+
+    local DEFAULT_USER="$ACCOUNT"
+    local REPO_OWNER REPO INPUT URL
+
+    case $# in
+        1)
+            INPUT="$1"
+
+            case "$INPUT" in
+                https://github.com/*)
+                    URL="${INPUT#https://github.com/}"
+                    REPO_OWNER="${URL%%/*}"
+                    REPO="${URL#*/}"
+                    REPO="${REPO%.git}"
+                    ;;
+
+                git@github.com:*)
+                    URL="${INPUT#git@github.com:}"
+                    REPO_OWNER="${URL%%/*}"
+                    REPO="${URL#*/}"
+                    REPO="${REPO%.git}"
+                    ;;
+
+                */*)
+                    REPO_OWNER="${INPUT%%/*}"
+                    REPO="${INPUT#*/}"
+                    REPO="${REPO%.git}"
+                    ;;
+
+                *)
+                    REPO_OWNER="$DEFAULT_USER"
+                    REPO="${INPUT%.git}"
+                    ;;
+            esac
+            ;;
+
+        2)
+            REPO_OWNER="$1"
+            REPO="${2%.git}"
+            ;;
+
+        *)
+            echo "Could not determine repository owner/name from input." >&2
+            return 1
+            ;;
+    esac
+
+    if [[ -z "$REPO_OWNER" || -z "$REPO" ]]; then
+        echo "Could not determine repository owner/name from input." >&2
+        return 1
+    fi
+
+    local remote
+    if [[ -n "$ACCOUNT" ]]; then
+        remote="git@github.com-${ACCOUNT}:${REPO_OWNER}/${REPO}.git"
+    else
+        remote="git@github.com:${REPO_OWNER}/${REPO}.git"
+    fi
+
+    echo "============REMOTE DETAILS============"
+    echo "Account : ${ACCOUNT:-<none>}"
+    echo "Remote  : $REMOTE_NAME"
+    echo "Repo    : $REPO_OWNER/$REPO"
+    echo "URL     : $remote"
+    echo
+
+    if git remote add "$REMOTE_NAME" "$remote"; then
+        echo "Remote added successfully."
+    else
+        echo "Failed to add remote."
+        return 1
+    fi
 
     EQLINE
 }

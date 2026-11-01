@@ -11,6 +11,7 @@ A modular, cross-platform Zsh and development environment configuration for **Te
 - **Unified Git Utilities & Submodule Shortcuts**: Comprehensive Git aliases and submodule commands merged into `zsh/git-aliases.zsh` with descriptions, example usages, safety indicators (`[DESTRUCTIVE]`), and auto-resetting author overrides (`gcase`).
 - **Git accounts without leaking data**: `customizeGit.bash` writes accounts and generated wrappers only under `$HOME`. The repository ships no usernames, emails, or private wrappers.
 - **SSH key audit**: existing keys in `~/.ssh` are inspected and can be mapped to a Git account or to commit signing without regenerating them. New `ed25519` keys, `allowed_signers`, and host aliases are handled by `ssh-setup`.
+- **Termux SSH backup**: `Termux/ssh-backup.sh` backs up `~/.ssh` from Termux native and every proot-distro container as a single passphrase-encrypted GPG archive (`Termux-SSH-Backup.tar.gpg`) in Android shared storage, with a matching restore flow, local safety copies, and automatic cleanup after a successful restore. No key file is used.
 - **Selectable extensions**: a multi-select picker (Space to toggle, Enter to install) for individual languages (Python, Node.js, PHP, Go, Rust, Java), CLI tooling (ripgrep, fd, fzf, jq, tmux, gh, …), and AI coding tools (Antigravity, plus OpenCode inside proot-distro) instead of everything at once.
 - **System Cleanup & Storage Inspection**: Tailored storage usage inspection aliases (`hdu`, `pdu`, `sdu`, etc.) and cache cleanup scripts for macOS (`Mac/clean-up.bash`, `Mac/chrclean.sh`) and Termux (`Termux/clean-up.bash`).
 
@@ -296,6 +297,7 @@ Shell-Setup/
 └── Termux/
     ├── base.bash               # Termux-specific aliases (pkgup, pkgin, storage shortcuts)
     ├── clean-up.bash           # Unified Termux smart cleanup editor & storage analysis
+    ├── ssh-backup.sh           # Encrypted GPG backup/restore of Termux/proot-distro ~/.ssh
     ├── .termux/                # Color scheme & termux.properties (installed to ~/.termux/)
     ├── .zshrc                  # Modular Termux .zshrc
     └── README.md               # Termux guide

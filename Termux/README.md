@@ -81,7 +81,68 @@ Run `./clean-up.bash` to launch the interactive main menu:
 
 ---
 
-# 5. Change Your Default Shell
+# 5. SSH Backup & Restore
+
+`Termux/ssh-backup.sh` backs up every `~/.ssh` directory from Termux native and all installed proot-distro containers, encrypts the archive with GPG, and writes it to Android shared storage. Restore decrypts the archive and copies each environment's files back into its own `~/.ssh`.
+
+From the repository checkout:
+
+```bash
+chmod +x Termux/ssh-backup.sh
+./Termux/ssh-backup.sh
+```
+
+Non-interactive usage:
+
+```bash
+./Termux/ssh-backup.sh --backup           # back up all detected ~/.ssh directories
+./Termux/ssh-backup.sh --restore          # restore, then remove the archive from shared storage
+./Termux/ssh-backup.sh --restore --keep   # restore and keep the archive for another run
+./Termux/ssh-backup.sh --status           # show detected sources and the existing archive
+./Termux/ssh-backup.sh --backup --dry-run # preview without writing anything
+./Termux/ssh-backup.sh --restore --yes    # skip confirmation prompts
+```
+
+## Encryption
+
+The backup is a single passphrase-encrypted file:
+
+```text
+$HOME/storage/shared/Termux-SSH-Backup/
+└── Termux-SSH-Backup.tar.gpg
+```
+
+- **GPG symmetric encryption only** — no keypair, key file, or passphrase file is created.
+- **AES-256**, SHA-512 key derivation with 65,011,712 S2K iterations, zlib compression, and MDC integrity protection.
+- The passphrase is read with a hidden prompt (`read -s`), passed to GPG through file descriptor 3, and never written to disk, command-line arguments, or shell history.
+- On backup the passphrase must be at least 12 characters and entered twice; restore allows three attempts.
+- If `gpg` is missing, the script installs `gnupg` automatically (`pkg install -y gnupg` in Termux, `apt-get install -y gnupg` in proot-distro).
+
+The decrypted archive contains the per-environment layout:
+
+```text
+termux/.ssh/
+proot-distro/<container>/root/.ssh/
+proot-distro/<container>/home/<user>/.ssh/
+manifest.txt
+```
+
+## Restore behavior
+
+- Runs `termux-setup-storage` automatically when Android storage access is missing in Termux native.
+- Uses the Termux home and `/sdcard` bind mounts when run inside proot-distro.
+- Detects both the current proot-distro layout (`containers/<name>/rootfs`) and the legacy `installed-rootfs/<name>` layout.
+- Decrypts into a private temporary directory, then copies files into each target `~/.ssh`.
+- Saves pre-restore copies locally under `~/.ssh-backup-safety/<timestamp>-<pid>/` (never in shared storage), and resets permissions (`700` for directories, `600` for private files, `644` for `*.pub`).
+- Removes the encrypted archive and local safety copies after a successful restore by default. Use `--keep` (or `--no-clean`) to retain them. If restore fails, both are kept for retry.
+
+> Android shared storage is readable by apps with storage permission. The GPG archive protects private keys while it is stored there, but the passphrase is the only thing standing between that file and your keys. Use a strong passphrase, never store it on the device, and remove the archive when it is no longer needed.
+
+> Older releases created a plaintext backup directory (`termux/`, `proot-distro/`). `--status` warns if that layout is present; re-run `--backup` to create an encrypted archive, then delete the old plaintext files.
+
+---
+
+# 6. Change Your Default Shell
 
 Set Zsh as your default login shell:
 
@@ -91,7 +152,7 @@ chsh -s zsh
 
 ---
 
-# 6. Load the New Configuration
+# 7. Load the New Configuration
 
 You do **not** need to close Termux. Start zsh in the current session:
 

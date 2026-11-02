@@ -1,7 +1,7 @@
 # =============================================================================
 # Git Accounts Configuration List
 # Location: ~/.config/git/accountList
-# Managed by customizeGit.bash
+# Managed by customizeGit.sh
 # Format: USERNAME:EMAIL:SHORTNAME
 # =============================================================================
 #

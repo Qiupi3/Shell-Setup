@@ -58,7 +58,7 @@ detect_project_types() {
   [[ -f "$dir/CMakeLists.txt" || -f "$dir/Makefile" || -f "$dir/makefile" || -f "$dir/meson.build" ]] && types="$types c"
   [[ -f "$dir/Gemfile" || -f "$dir/Rakefile" ]] && types="$types ruby"
   [[ -d "$dir/nvim" || -f "$dir/init.lua" || -f "$dir/init.vim" ]] && types="$types nvim"
-  if compgen -G "$dir/*.sh" >/dev/null 2>&1 || compgen -G "$dir/*.bash" >/dev/null 2>&1 || compgen -G "$dir/*.zsh" >/dev/null 2>&1 || [[ -f "$dir/install.bash" || -f "$dir/install.sh" ]]; then types="$types shell"; fi
+  if compgen -G "$dir/*.sh" >/dev/null 2>&1 || compgen -G "$dir/*.zsh" >/dev/null 2>&1 || [[ -f "$dir/install.sh" ]]; then types="$types shell"; fi
   [[ -d "$dir/.git" || -f "$dir/.git" ]] && types="$types git"
   types="${types# }"; types="${types% }"; [[ -z "$types" ]] && types="other"; echo "$types"
 }

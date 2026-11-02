@@ -84,20 +84,23 @@ fi
 #   Option 2  Neovim editor      — ~/.config/nvim, EDITOR/VISUAL, core.editor
 #   Option 3  Git accounts & SSH — key audit, key creation, commit signing,
 #                                  account-specific clone wrappers
-#   Option 4  Extensions         — pick languages and CLI tooling individually
+#   Option 4  Proot-distro       — install a choosable distro and set up
+#                                  Option 1 inside it (Termux only)
+#   Option 5  Extensions         — pick languages and CLI tooling individually
 #
 # User data is always written under $HOME. The repository is never modified.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash
-#   ./install.bash                    # Interactive menu
-#   ./install.bash --shell            # Option 1 (offers Option 2 at the end)
-#   ./install.bash --nvim             # Option 2
-#   ./install.bash --git              # Option 3
-#   ./install.bash --ext              # Option 4 (interactive picker)
-#   ./install.bash --ext python,node  # Option 4 (non-interactive)
-#   ./install.bash --all              # Options 1 + 2 + 3
-#   ./install.bash --everything       # Options 1 + 2 + 3 + 4
+#   curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.sh | bash
+#   ./install.sh                    # Interactive menu
+#   ./install.sh --shell            # Option 1 (offers Option 2 at the end)
+#   ./install.sh --nvim             # Option 2
+#   ./install.sh --git              # Option 3
+#   ./install.sh --proot [DISTRO]   # Option 4 (ubuntu or debian)
+#   ./install.sh --ext              # Option 5 (interactive picker)
+#   ./install.sh --ext python,node  # Option 5 (non-interactive)
+#   ./install.sh --all              # Options 1 + 2 + 3
+#   ./install.sh --everything       # Options 1 + 2 + 3 + 5
 #
 # Legacy flags (still supported):
 #   --modules        Copy shell configs only (no package install, no chsh)
@@ -105,7 +108,7 @@ fi
 #   --zsh            Install zsh and set it as the default shell
 #   --ssh            Alias for --git
 #   --gitconfig      Only write ~/.gitconfig and allowed_signers
-#   --git-accounts   Only run customizeGit.bash
+#   --git-accounts   Only run customizeGit.sh
 #   --git-aliases    Only install/update unified git aliases
 #   --extensions     Alias for --ext
 #   --node --php --antigravity
@@ -137,14 +140,18 @@ EDITOR_END="# <<< Shell-Setup editor <<<"
 # --all/--everything so Neovim runs exactly once.
 SHELL_OFFER_NVIM=1
 
+# Set when the action happened inside a proot-distro container, so the final
+# "exec zsh" hint is not shown for the Termux host shell.
+SKIP_FINAL_HINTS=0
+
 # ---------------------------------------------------------------------------
 # Self-bootstrap (curl | bash)
 # ---------------------------------------------------------------------------
-# Running `curl .../install.bash | bash` leaves us without the rest of the
+# Running `curl .../install.sh | bash` leaves us without the rest of the
 # repository. Download the current main tarball to a temporary directory,
 # re-run the real installer from it, then remove the temporary copy.
 # The `zsh/` directory is the marker: it is required by every module.
-if [[ ! -d "$REPO_DIR/zsh" || ! -f "$REPO_DIR/install.bash" ]]; then
+if [[ ! -d "$REPO_DIR/zsh" || ! -f "$REPO_DIR/install.sh" ]]; then
     set -o pipefail
     BOOTSTRAP_RC=0
     BOOTSTRAP_DIR=""
@@ -194,8 +201,8 @@ if [[ ! -d "$REPO_DIR/zsh" || ! -f "$REPO_DIR/install.bash" ]]; then
     rm -f "$BOOTSTRAP_ARCHIVE"
 
     BOOTSTRAP_REPO="$BOOTSTRAP_DIR/Shell-Setup-main"
-    if [[ ! -f "$BOOTSTRAP_REPO/install.bash" ]]; then
-        echo "  ✗ Downloaded archive is missing install.bash." >&2
+    if [[ ! -f "$BOOTSTRAP_REPO/install.sh" ]]; then
+        echo "  ✗ Downloaded archive is missing install.sh." >&2
         exit 1
     fi
 
@@ -204,11 +211,11 @@ if [[ ! -d "$REPO_DIR/zsh" || ! -f "$REPO_DIR/install.bash" ]]; then
     # terminal, use /dev/null so a prompt cannot consume the remaining bytes
     # of this very script from the pipe.
     if [[ -t 0 ]]; then
-        bash "$BOOTSTRAP_REPO/install.bash" "$@" || BOOTSTRAP_RC=$?
+        bash "$BOOTSTRAP_REPO/install.sh" "$@" || BOOTSTRAP_RC=$?
     elif (exec </dev/tty) 2>/dev/null; then
-        bash "$BOOTSTRAP_REPO/install.bash" "$@" </dev/tty || BOOTSTRAP_RC=$?
+        bash "$BOOTSTRAP_REPO/install.sh" "$@" </dev/tty || BOOTSTRAP_RC=$?
     else
-        bash "$BOOTSTRAP_REPO/install.bash" "$@" </dev/null || BOOTSTRAP_RC=$?
+        bash "$BOOTSTRAP_REPO/install.sh" "$@" </dev/null || BOOTSTRAP_RC=$?
     fi
 
     # The parent `curl` may still be writing the rest of this script into our
@@ -235,6 +242,55 @@ info()   { echo "  $(green "»") $*"; }
 warn()   { echo "  $(yellow "⚠") $*"; }
 err()    { echo "  $(red "✗") $*" >&2; }
 header() { echo; echo "$(bold "=== $* ===")"; echo; }
+
+# Read one line while treating q or Esc as an explicit cancel.
+# Returns 0 on submit, 1 on EOF, 2 on q/Esc.
+read_line_or_cancel() {
+    local prompt="$1" __var="$2" input="" key=""
+
+    # Piped/non-interactive runs cannot report a bare Escape key; keep the
+    # normal line-based behaviour and still honour a lone "q".
+    if [[ ! -t 0 ]]; then
+        if ! IFS= read -r -p "$prompt" input; then
+            return 1
+        fi
+        printf -v "$__var" '%s' "$input"
+        [[ "$input" == [qQ] ]] && return 2
+        return 0
+    fi
+
+    printf '%s' "$prompt"
+    while :; do
+        if ! IFS= read -rsn1 key; then
+            printf '\n'
+            return 1
+        fi
+        case "$key" in
+            $'\033')
+                printf '\n'
+                return 2
+                ;;
+            $'\n'|$'\r'|'')
+                printf '\n'
+                break
+                ;;
+            $'\177'|$'\b')
+                if [[ -n "$input" ]]; then
+                    input="${input%?}"
+                    printf '\b \b'
+                fi
+                ;;
+            *)
+                input+="$key"
+                printf '%s' "$key"
+                ;;
+        esac
+    done
+
+    printf -v "$__var" '%s' "$input"
+    [[ "$input" == [qQ] ]] && return 2
+    return 0
+}
 
 # ---------------------------------------------------------------------------
 # Environment Detection
@@ -455,10 +511,14 @@ confirm() {
     local hint=" [Y/n] "
     [[ "$default" == "n" ]] && hint=" [y/N] "
 
-    local answer
+    local answer rc=0
     # EOF (non-interactive run, e.g. installer invoked from a script) must not
     # be treated as "yes", otherwise console-driven setup steps would run blind.
-    if ! read -r -p "${prompt}${hint}" answer; then
+    read_line_or_cancel "${prompt}${hint}" answer || rc=$?
+    if (( rc == 2 )); then
+        echo "  Exiting."
+        exit 0
+    elif (( rc == 1 )); then
         echo
         return 1
     fi
@@ -770,10 +830,10 @@ install_shell_configs() {
             cp "$f" "$ZSH_DIR/$base"
         done
 
-        if [[ -f "$REPO_DIR/zsh/customizeGit.bash" ]]; then
-            info "Installing Git account customizer → ~/.zsh/customizeGit.bash"
-            cp "$REPO_DIR/zsh/customizeGit.bash" "$ZSH_DIR/customizeGit.bash"
-            chmod 755 "$ZSH_DIR/customizeGit.bash"
+        if [[ -f "$REPO_DIR/zsh/customizeGit.sh" ]]; then
+            info "Installing Git account customizer → ~/.zsh/customizeGit.sh"
+            cp "$REPO_DIR/zsh/customizeGit.sh" "$ZSH_DIR/customizeGit.sh"
+            chmod 755 "$ZSH_DIR/customizeGit.sh"
         fi
 
         # Legacy cleanups only. Never touch ~/.zsh/git-custom.zsh: it holds
@@ -782,9 +842,9 @@ install_shell_configs() {
         rm -f "$ZSH_DIR/no-git.zsh"
     fi
 
-    if [[ -f "$ENV_DIR/base.bash" ]]; then
-        info "Copying base config from $(bold "$ENV_DIR/base.bash") → ~/.zsh/base.zsh"
-        cp "$ENV_DIR/base.bash" "$ZSH_DIR/base.zsh"
+    if [[ -f "$ENV_DIR/base.sh" ]]; then
+        info "Copying base config from $(bold "$ENV_DIR/base.sh") → ~/.zsh/base.zsh"
+        cp "$ENV_DIR/base.sh" "$ZSH_DIR/base.zsh"
     elif [[ -f "$ENV_DIR/no-git" ]]; then
         info "Copying legacy non-git config from $(bold "$ENV_DIR/no-git") → ~/.zsh/base.zsh"
         cp "$ENV_DIR/no-git" "$ZSH_DIR/base.zsh"
@@ -885,10 +945,10 @@ install_git_helpers() {
         cp "$REPO_DIR/zsh/git-functions.zsh" "$ZSH_DIR/git-functions.zsh"
     fi
 
-    if [[ -f "$REPO_DIR/zsh/customizeGit.bash" ]]; then
-        info "Installing Git account customizer → ~/.zsh/customizeGit.bash"
-        cp "$REPO_DIR/zsh/customizeGit.bash" "$ZSH_DIR/customizeGit.bash"
-        chmod 755 "$ZSH_DIR/customizeGit.bash"
+    if [[ -f "$REPO_DIR/zsh/customizeGit.sh" ]]; then
+        info "Installing Git account customizer → ~/.zsh/customizeGit.sh"
+        cp "$REPO_DIR/zsh/customizeGit.sh" "$ZSH_DIR/customizeGit.sh"
+        chmod 755 "$ZSH_DIR/customizeGit.sh"
     fi
 
     # The generated account wrappers only exist inside a zsh session. Make
@@ -925,10 +985,10 @@ install_ssh_files() {
 
     repair_ssh_config
 
-    if [[ -f "$REPO_DIR/.ssh/setup.bash" ]]; then
-        info "Installing SSH setup helper → ~/.ssh/setup.bash"
-        cp "$REPO_DIR/.ssh/setup.bash" "$ssh_dir/setup.bash"
-        chmod 755 "$ssh_dir/setup.bash"
+    if [[ -f "$REPO_DIR/.ssh/setup.sh" ]]; then
+        info "Installing SSH setup helper → ~/.ssh/setup.sh"
+        cp "$REPO_DIR/.ssh/setup.sh" "$ssh_dir/setup.sh"
+        chmod 755 "$ssh_dir/setup.sh"
     fi
 
     # Make sure OpenSSH can actually parse the resulting config.
@@ -948,7 +1008,7 @@ install_git_ssh() {
     install_git_helpers
     install_ssh_files
 
-    # Accounts must exist before keys are created: setup.bash names keys,
+    # Accounts must exist before keys are created: setup.sh names keys,
     # SSH hosts, and signing entries after the account list. Doing SSH first
     # (the old order) created keys that were not attached to any account and
     # made the account manager ask for the same information again.
@@ -985,7 +1045,7 @@ install_git_ssh() {
     if confirm "  Set up SSH keys for your ${count} account(s) now?" y; then
         run_ssh_setup
     else
-        info "Skipped. Run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+        info "Skipped. Run it anytime with: $(bold "bash ~/.ssh/setup.sh")"
     fi
 }
 
@@ -1005,26 +1065,26 @@ account_entry_count() {
 # interactive manager. Keeps clone wrappers available when Option 3 is run on
 # an existing account list (for example after a fresh install or an update).
 sync_git_wrappers() {
-    local customizer="$HOME/.zsh/customizeGit.bash"
+    local customizer="$HOME/.zsh/customizeGit.sh"
     [[ -f "$customizer" ]] || return 0
     SHELL_SETUP_NO_SSH_PROMPT=1 bash "$customizer" --sync >/dev/null 2>&1 || return 0
 }
 
 # Run the SSH helper once, with a consistent success/failure message.
 run_ssh_setup() {
-    if [[ ! -f "$HOME/.ssh/setup.bash" ]]; then
+    if [[ ! -f "$HOME/.ssh/setup.sh" ]]; then
         install_ssh_files
     fi
-    if [[ ! -f "$HOME/.ssh/setup.bash" ]]; then
-        err "~/.ssh/setup.bash not found."
+    if [[ ! -f "$HOME/.ssh/setup.sh" ]]; then
+        err "~/.ssh/setup.sh not found."
         return 1
     fi
 
-    if bash "$HOME/.ssh/setup.bash"; then
+    if bash "$HOME/.ssh/setup.sh"; then
         info "SSH setup finished."
     else
         warn "SSH setup ended without completing."
-        warn "Re-run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+        warn "Re-run it anytime with: $(bold "bash ~/.ssh/setup.sh")"
         return 1
     fi
 }
@@ -1239,7 +1299,7 @@ patch_zshrc_editor() {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Extensions (Option 4)
+# 4. Extensions (Option 5)
 # ---------------------------------------------------------------------------
 # Direct installers kept for the legacy --node / --php / --antigravity flags.
 install_node() {
@@ -1786,7 +1846,7 @@ ext_draw_tui() {
         out+="   $(dim "[$((EXT_SCROLL + 1))-$((end + 1)) of ${#EXT_IDS[@]}]")"
     fi
     out+=$'\n'
-    out+=$'\033[2K'"  $(dim "↑/↓ move · Space toggle · a all/none · i invert · Enter install · q skip")"$'\n'
+    out+=$'\033[2K'"  $(dim "↑/↓ move · Space toggle · a all/none · i invert · Enter install · q/Esc skip")"$'\n'
     out+=$'\033[J'
 
     printf '%s' "$out"
@@ -1890,11 +1950,9 @@ ext_select_prompt() {
     done
     echo
 
-    local selection
-    if ! read -r -p "  Choose: " selection; then
-        return 1
-    fi
-    if [[ -z "$selection" ]]; then
+    local selection rc=0
+    read_line_or_cancel "  Choose (q/Esc to cancel): " selection || rc=$?
+    if (( rc != 0 )) || [[ -z "$selection" ]]; then
         return 1
     fi
     if [[ "$selection" == [nN] ]]; then
@@ -1973,6 +2031,147 @@ install_extensions() {
 }
 
 # ---------------------------------------------------------------------------
+# 4b. Proot-distro setup (Termux only, Option 4)
+# ---------------------------------------------------------------------------
+proot_distro_rootfs() {
+    local name="$1"
+    local prefix="${PREFIX:-/data/data/com.termux/files/usr}"
+    local base=""
+
+    for base in \
+        "$prefix/var/lib/proot-distro/containers/$name/rootfs" \
+        "$prefix/var/lib/proot-distro/installed-rootfs/$name" \
+        "$prefix/var/lib/proot-distro/installed-rootfs/$name/rootfs"; do
+        if [[ -d "$base" ]]; then
+            printf '%s\n' "$base"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+select_proot_distro() {
+    local choice="" rc=0
+    local ubuntu_state="" debian_state=""
+    proot_distro_rootfs ubuntu >/dev/null 2>&1 && ubuntu_state=" $(dim "[installed]")"
+    proot_distro_rootfs debian >/dev/null 2>&1 && debian_state=" $(dim "[installed]")"
+
+    echo "  Choose a Linux distribution:"
+    echo
+    echo "    1) Ubuntu — recommended${ubuntu_state}"
+    echo "    2) Debian${debian_state}"
+    echo "    q) Cancel (or press Esc)"
+    echo
+
+    while :; do
+        read_line_or_cancel "  Choose [1/2/q, Esc]: " choice || rc=$?
+        case "$rc" in
+            1|2)
+                info "Cancelled."
+                return 1
+                ;;
+        esac
+
+        case "$choice" in
+            1|ubuntu|Ubuntu|UBUNTU)
+                PROOT_DISTRO="ubuntu"
+                return 0
+                ;;
+            2|debian|Debian|DEBIAN)
+                PROOT_DISTRO="debian"
+                return 0
+                ;;
+            "")
+                ;;
+            *)
+                warn "Invalid choice: $choice"
+                ;;
+        esac
+    done
+}
+
+run_install_inside_proot() {
+    local distro="$1"
+    local local_install="$REPO_DIR/install.sh"
+    local quoted_install="" install_cmd=""
+    local url="https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.sh"
+
+    # Prefer the local checkout when it is visible in the container; otherwise
+    # fall back to the published installer. Termux home is bind-mounted into
+    # proot-distro, so a cloned repo usually keeps the same absolute path.
+    if [[ -f "$local_install" ]]; then
+        printf -v quoted_install '%q' "$local_install"
+        install_cmd="if [ -f $quoted_install ]; then bash $quoted_install --shell; else curl -fsSL $url | bash -s -- --shell; fi"
+    else
+        install_cmd="curl -fsSL $url | bash -s -- --shell"
+    fi
+
+    proot-distro login "$distro" -- /bin/bash -lc "$install_cmd"
+}
+
+proot_distro_setup() {
+    local requested="${1:-}"
+
+    header "Proot-distro Setup"
+
+    if [[ "$ENV_NAME" != "termux" ]]; then
+        if [[ "$IS_PROOT_DISTRO" -eq 1 ]]; then
+            warn "You are already inside a proot-distro container."
+        else
+            warn "This option is only available in Termux on Android."
+        fi
+        return 0
+    fi
+
+    if ! cmd_exists proot-distro; then
+        info "Installing proot-distro..."
+        pkg_ensure proot-distro || {
+            err "Failed to install proot-distro."
+            return 1
+        }
+    fi
+
+    PROOT_DISTRO=""
+    if [[ -n "$requested" ]]; then
+        case "$requested" in
+            ubuntu|debian)
+                PROOT_DISTRO="$requested"
+                ;;
+            *)
+                err "Unsupported distribution: $requested (choose ubuntu or debian)."
+                return 1
+                ;;
+        esac
+    else
+        select_proot_distro || return 0
+    fi
+
+    SKIP_FINAL_HINTS=1
+
+    if proot_distro_rootfs "$PROOT_DISTRO" >/dev/null 2>&1; then
+        info "$PROOT_DISTRO is already installed."
+    else
+        info "Installing $PROOT_DISTRO (this may take a while)..."
+        if ! proot-distro install "$PROOT_DISTRO"; then
+            err "Failed to install $PROOT_DISTRO."
+            return 1
+        fi
+    fi
+
+    echo
+    info "Starting $(bold "$PROOT_DISTRO") and installing Option 1 (Shell environment)..."
+    if run_install_inside_proot "$PROOT_DISTRO"; then
+        info "$(green "Option 1 finished inside $PROOT_DISTRO.")"
+        info "Re-enter anytime with: $(bold "proot-distro login $PROOT_DISTRO")"
+    else
+        warn "Setup inside $PROOT_DISTRO ended without completing."
+        warn "Re-run it with: $(bold "proot-distro login $PROOT_DISTRO")"
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # 5. Unified Git Aliases & Submodule Shortcuts
 # ---------------------------------------------------------------------------
 setup_git_aliases() {
@@ -2009,15 +2208,15 @@ setup_git_submodule_aliases() {
 setup_git_accounts() {
     header "Git Multi-Account Setup"
 
-    local custom_script="$HOME/.zsh/customizeGit.bash"
+    local custom_script="$HOME/.zsh/customizeGit.sh"
     if [[ ! -f "$custom_script" ]]; then
-        custom_script="$REPO_DIR/zsh/customizeGit.bash"
+        custom_script="$REPO_DIR/zsh/customizeGit.sh"
     fi
 
     if [[ -f "$custom_script" ]]; then
         bash "$custom_script"
     else
-        warn "customizeGit.bash not found. Run Option 3 (Git accounts & SSH) first."
+        warn "customizeGit.sh not found. Run Option 3 (Git accounts & SSH) first."
     fi
 }
 
@@ -2035,7 +2234,7 @@ setup_ssh() {
         run_ssh_setup
     else
         info "Skipped SSH key generation."
-        info "You can run it anytime with: $(bold "bash ~/.ssh/setup.bash")"
+        info "You can run it anytime with: $(bold "bash ~/.ssh/setup.sh")"
     fi
 }
 
@@ -2043,54 +2242,68 @@ setup_ssh() {
 # Interactive Menu
 # ---------------------------------------------------------------------------
 interactive_menu() {
-    header "Shell-Setup Installer ($ENV_NAME)"
+    while :; do
+        header "Shell-Setup Installer ($ENV_NAME)"
 
-    echo "  What would you like to set up?"
-    echo
-    echo "    1) Shell environment   — Zsh, aliases, plugins, ~/.zshrc"
-    echo "    2) Neovim editor       — config, EDITOR/VISUAL, git core.editor"
-    echo "    3) Git accounts & SSH  — accounts, SSH keys, clone wrappers"
-    echo "    4) Extensions          — multi-select languages and CLI tools"
-    echo "    5) Everything          — run 1 → 2 → 3 → 4"
-    echo "    q) Quit"
-    echo
+        echo "  What would you like to set up?"
+        echo
+        echo "    1) Shell environment   — Zsh, aliases, plugins, ~/.zshrc"
+        echo "    2) Neovim editor       — config, EDITOR/VISUAL, git core.editor"
+        echo "    3) Git accounts & SSH  — accounts, SSH keys, clone wrappers"
+        echo "    4) Proot-distro        — Termux only: install Ubuntu/Debian + Option 1"
+        echo "    5) Extensions          — multi-select languages and CLI tools"
+        echo "    6) Everything          — run 1 → 2 → 3 → 5"
+        echo "    q) Quit (or press Esc)"
+        echo
 
-    local choice
-    if ! read -r -p "  Choose [1-5/q]: " choice; then
-        echo "  Exiting."
-        exit 0
-    fi
-
-    case "$choice" in
-        1)
-            SHELL_OFFER_NVIM=1
-            install_shell
-            ;;
-        2)
-            install_nvim
-            ;;
-        3)
-            install_git_ssh
-            ;;
-        4)
-            install_extensions_menu
-            ;;
-        5)
-            SHELL_OFFER_NVIM=0
-            install_shell
-            install_nvim
-            install_git_ssh
-            install_extensions_menu
-            ;;
-        q|Q)
+        local choice="" rc=0
+        read_line_or_cancel "  Choose [1-6/q, Esc]: " choice || rc=$?
+        if (( rc != 0 )); then
             echo "  Exiting."
             exit 0
-            ;;
-        *)
-            err "Invalid choice: $choice"
-            exit 1
-            ;;
-    esac
+        fi
+
+        case "$choice" in
+            1)
+                SHELL_OFFER_NVIM=1
+                install_shell
+                return
+                ;;
+            2)
+                install_nvim
+                return
+                ;;
+            3)
+                install_git_ssh
+                return
+                ;;
+            4)
+                proot_distro_setup
+                return
+                ;;
+            5)
+                install_extensions_menu
+                return
+                ;;
+            6)
+                SHELL_OFFER_NVIM=0
+                install_shell
+                install_nvim
+                install_git_ssh
+                install_extensions_menu
+                return
+                ;;
+            q|Q)
+                echo "  Exiting."
+                exit 0
+                ;;
+            "")
+                ;;
+            *)
+                err "Invalid choice: $choice"
+                ;;
+        esac
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -2100,21 +2313,23 @@ show_help() {
     cat <<EOF
 $(bold "Shell-Setup Universal Installer")
 
-Usage: ./install.bash [OPTIONS]
-       curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.bash | bash
+Usage: ./install.sh [OPTIONS]
+       curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.sh | bash
 
 Modules:
   --shell         Option 1 — Zsh, aliases, git aliases, plugin, ~/.zshrc
   --nvim          Option 2 — Neovim config, EDITOR/VISUAL, core.editor
   --git           Option 3 — Git accounts, SSH key audit/setup, wrappers
-  --ext [LIST]    Option 4 — multi-select picker, or comma-separated ids
+  --proot [DISTRO] Option 4 — install proot-distro (Linux) and run Option 1
+                  inside it. DISTRO: ubuntu or debian (Termux only).
+  --ext [LIST]    Option 5 — multi-select picker, or comma-separated ids
                   (e.g. --ext python,node,antigravity)
                   AI tools: antigravity (agy), opencode (proot-distro only)
   --all           Options 1 + 2 + 3
-  --everything    Options 1 + 2 + 3 + 4
+  --everything    Options 1 + 2 + 3 + 5
 
-Extension picker keys (Option 4 / --ext without a list):
-  ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install · q skip
+Extension picker keys (Option 5 / --ext without a list):
+  ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install · q/Esc skip
   (pipes and </dev/null fall back to a numbered prompt)
 
 Legacy options (still supported):
@@ -2123,7 +2338,7 @@ Legacy options (still supported):
   --zsh           Install zsh and set it as the default shell
   --ssh           Alias for --git
   --gitconfig     Only write ~/.gitconfig and allowed_signers
-  --git-accounts  Only run customizeGit.bash
+  --git-accounts  Only run customizeGit.sh
   --git-aliases   Install or update unified git aliases (alias: --submodules)
   --extensions    Alias for --ext (interactive)
   --node          Install Node.js
@@ -2180,6 +2395,15 @@ main() {
                 --git)
                     install_git_ssh
                     shift
+                    ;;
+                --proot)
+                    shift
+                    local proot_distro=""
+                    if [[ $# -gt 0 && "$1" != -* ]]; then
+                        proot_distro="$1"
+                        shift
+                    fi
+                    proot_distro_setup "$proot_distro"
                     ;;
                 --ext)
                     shift
@@ -2270,6 +2494,9 @@ main() {
 
     echo
     info "$(green "Done!")"
+    if [[ "${SKIP_FINAL_HINTS:-0}" -eq 1 ]]; then
+        return 0
+    fi
     if native_cmd_exists zsh; then
         info "Load the new configuration now: $(bold "exec zsh")"
         info "or restart your terminal. $(dim "(Do not run 'source ~/.zshrc' from bash.)")"

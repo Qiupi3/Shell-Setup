@@ -3,7 +3,7 @@
 #
 # This file intentionally contains NO account data. Account-specific wrappers
 # (<short>GClone, <short>goa, <short>goan, <short>_gConfig, <short>_vConfig)
-# are generated locally into ~/.zsh/git-custom.zsh by customizeGit.bash.
+# are generated locally into ~/.zsh/git-custom.zsh by customizeGit.sh.
 
 # EQLINE function
 EQLINE() {

@@ -34,23 +34,24 @@ Run the automated installer script from the repository root:
 
 ```bash
 cd ~/Shell-Setup/
-./install.bash
+./install.sh
 ```
 
 This automates:
 - Copying the slim, modular `.zshrc` into `~/.zshrc`
 - Copying modular config files from root `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-functions.zsh`, `prompt.zsh`) to `~/.zsh/`
-- Copying Termux base shortcuts (`Termux/base.bash`) to `~/.zsh/base.zsh`
+- Copying Termux base shortcuts (`Termux/base.sh`) to `~/.zsh/base.zsh`
 - Installing `zsh-syntax-highlighting` into `~/.zsh/plugins/` (if not already present)
 - Copying Termux terminal settings and styling from `Termux/.termux/` to `~/.termux/`
 - Installing the Neovim configuration from `.config/nvim/` to `~/.config/nvim/` **only when Option 2 is selected**
 - Setting up global Git configurations (`~/.gitconfig` & `~/.config/git/allowed_signers`) and SSH files **only when Option 3 is selected**
+- Installing a choosable Ubuntu/Debian proot-distro and running Option 1 inside it **when Option 4 is selected**
 
 ---
 
 # 4. Storage Usage Inspection & Cleanup
 
-Termux includes a dedicated storage analysis and cache cleanup utility in `Termux/clean-up.bash`:
+Termux includes a dedicated storage analysis and cache cleanup utility in `Termux/clean-up.sh`:
 
 ### Storage Inspection Aliases
 - `hdu`: Home directory usage (`~`)
@@ -62,7 +63,7 @@ Termux includes a dedicated storage analysis and cache cleanup utility in `Termu
 - `gdu`, `ndu`, `pldu`: Gradle, NPM, and Pip cache usage
 
 ### Smart Cleanup & Package Analyzer
-Run `./clean-up.bash` to launch the interactive main menu:
+Run `./clean-up.sh` to launch the interactive main menu:
 - **Smart Cache & Temp Cleanup**: TUI checklist editor for runtime temporary files, user caches, NPM, Pip, Cargo, Go, and gallery thumbnails.
 - **Package & Project Usage Analyzer**:
   - Scans installed Debian/Termux packages, sizes, dependencies, and reverse dependencies.
@@ -73,11 +74,11 @@ Run `./clean-up.bash` to launch the interactive main menu:
   - **Git Status & Unsaved Changes Detection**: Detects uncommitted changes and unpushed commits before deletion to prevent accidental data loss.
 - **Strict Confirmation**: Shows the exact path to be cleared and asks for confirmation for every delete.
 - CLI options:
-  - `./clean-up.bash --cache` : Launch cache TUI editor directly.
-  - `./clean-up.bash --packages` (or `--pkg`) : Launch package & project analyzer directly.
-  - `./clean-up.bash --scan` : Preview cleanable sizes without deleting.
-  - `./clean-up.bash --dry-run` : Simulate actions without modifying files.
-  - `./clean-up.bash --all` : Clean all detected cache targets (with per-item confirmation).
+  - `./clean-up.sh --cache` : Launch cache TUI editor directly.
+  - `./clean-up.sh --packages` (or `--pkg`) : Launch package & project analyzer directly.
+  - `./clean-up.sh --scan` : Preview cleanable sizes without deleting.
+  - `./clean-up.sh --dry-run` : Simulate actions without modifying files.
+  - `./clean-up.sh --all` : Clean all detected cache targets (with per-item confirmation).
 
 ---
 

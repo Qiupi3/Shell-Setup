@@ -2,7 +2,7 @@
 
 This directory contains configuration and automated setup tools for managing SSH keys and Git commit signing.
 
-This folder will be replicated inside `~/.ssh`, either copy manually or using the Automated Script. The Automated Script will be called when using the built in `install.bash` script.
+This folder will be replicated inside `~/.ssh`, either copy manually or using the Automated Script. The Automated Script will be called when using the built in `install.sh` script.
 
 ---
 
@@ -12,7 +12,7 @@ You can run the interactive setup script directly:
 
 ```bash
 # Using the repository script:
-bash .ssh/setup.bash
+bash .ssh/setup.sh
 
 # Or after installing Shell-Setup, use the alias:
 ssh-setup
@@ -29,7 +29,7 @@ ssh-setup
    - **Generate both keys (separate)**: Two distinct keys (`<Username>` for Auth and `<Username>_Signing` for commit signing).
 5. Generates modern `Ed25519` key pairs (`ssh-keygen -t ed25519`).
 6. Configures `~/.config/git/allowed_signers` automatically when signing keys are set up, keeping `~/.gitconfig` global signing key untouched for account wrappers.
-7. Copies public keys to your system clipboard (`pbcopy`, `termux-clipboard-set`, or `xclip`/`wl-copy`) and prints them formatted for GitHub.
+7. Prints public keys formatted for GitHub, with instructions for adding them.
 
 ---
 

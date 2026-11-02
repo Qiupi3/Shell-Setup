@@ -12,7 +12,7 @@ if [ -z "$BASH_VERSION" ]; then
 fi
 # =============================================================================
 # SSH Key Setup & Git Commit Signing Configuration
-# Location: ~/.ssh/setup.bash (sourced / copied from repository .ssh/setup.bash)
+# Location: ~/.ssh/setup.sh (sourced / copied from repository .ssh/setup.sh)
 #
 # Generates Ed25519 SSH keys for GitHub authentication and/or Git commit signing.
 # Automatically sets up:
@@ -26,7 +26,7 @@ fi
 #   - Proper key separation:
 #       * Auth key: ~/.ssh/<Username>, added to ~/.ssh/config host
 #       * Signing key: ~/.ssh/<Username>_Signing, added to allowed_signers
-#   - Public key formatting and clipboard helper for GitHub
+#   - Public key formatting for GitHub
 # =============================================================================
 set -euo pipefail
 
@@ -56,25 +56,6 @@ info()   { echo "  $(green "»") $*"; }
 warn()   { echo "  $(yellow "⚠") $*"; }
 err()    { echo "  $(red "✗") $*" >&2; }
 header() { echo; echo "$(bold "=== $* ===")"; echo; }
-
-# -----------------------------------------------------------------------------
-# Clipboard Helper
-# -----------------------------------------------------------------------------
-copy_to_clipboard() {
-    local text="$1"
-    if command -v termux-clipboard-set &>/dev/null; then
-        printf '%s' "$text" | termux-clipboard-set 2>/dev/null && return 0
-    elif command -v pbcopy &>/dev/null; then
-        printf '%s' "$text" | pbcopy 2>/dev/null && return 0
-    elif command -v wl-copy &>/dev/null; then
-        printf '%s' "$text" | wl-copy 2>/dev/null && return 0
-    elif command -v xclip &>/dev/null; then
-        printf '%s' "$text" | xclip -selection clipboard 2>/dev/null && return 0
-    elif command -v xsel &>/dev/null; then
-        printf '%s' "$text" | xsel --clipboard --input 2>/dev/null && return 0
-    fi
-    return 1
-}
 
 # -----------------------------------------------------------------------------
 # Load Account List (~/.config/git/accountList)
@@ -361,12 +342,6 @@ EOF
         local auth_fp=""
         auth_fp="$(ssh-keygen -lf "$auth_key.pub" 2>/dev/null | awk '{print $2}' || true)"
         [[ -n "$auth_fp" ]] && info "Fingerprint: $(bold "$auth_fp")"
-
-        if copy_to_clipboard "$auth_pub"; then
-            info "$(green "Copied public key to clipboard!")"
-        else
-            info "Tip: Copy the public key string above to clipboard."
-        fi
     fi
 
     # Output Signing Key
@@ -383,18 +358,6 @@ EOF
         local sign_fp=""
         sign_fp="$(ssh-keygen -lf "$sign_key.pub" 2>/dev/null | awk '{print $2}' || true)"
         [[ -n "$sign_fp" ]] && info "Fingerprint: $(bold "$sign_fp")"
-
-        local copy_sign="y"
-        if [[ -n "$auth_key" ]]; then
-            read -r -p "  Copy Signing key to clipboard now? [Y/n]: " copy_sign
-        fi
-        if [[ -z "$copy_sign" || "$copy_sign" =~ ^[Yy] ]]; then
-            if copy_to_clipboard "$sign_pub"; then
-                info "$(green "Copied Signing public key to clipboard!")"
-            else
-                info "Tip: Copy the signing key string above manually."
-            fi
-        fi
     fi
 
     echo
@@ -716,7 +679,7 @@ audit_ssh_keys() {
 
     warn "${#orphan_keys[@]} key(s) are not fully mapped."
     if ! ask_yes_no "  Map an unmapped key now?" n; then
-        info "Skipped key mapping. You can map later with customizeGit.bash / setup.bash."
+        info "Skipped key mapping. You can map later with customizeGit.sh / setup.sh."
         return 0
     fi
 
@@ -749,12 +712,12 @@ audit_ssh_keys() {
 # -----------------------------------------------------------------------------
 # Refresh generated account wrappers
 #
-# setup.bash may add an account (when mapping an existing key) or create new
+# setup.sh may add an account (when mapping an existing key) or create new
 # keys. Regenerate ~/.zsh/git-custom.zsh so the account list and wrapper
 # functions stay in sync without asking the user to open the manager again.
 # -----------------------------------------------------------------------------
 sync_git_custom() {
-    local customizer="$HOME/.zsh/customizeGit.bash"
+    local customizer="$HOME/.zsh/customizeGit.sh"
     [[ -f "$customizer" ]] || return 0
 
     SHELL_SETUP_NO_SSH_PROMPT=1 bash "$customizer" --sync >/dev/null 2>&1 || true
@@ -777,7 +740,7 @@ main() {
         err "That client reads /data/data/com.termux/files/home/.ssh, not $HOME/.ssh."
         info "Install the guest OpenSSH client first:"
         info "  apt-get update && apt-get install -y openssh-client"
-        info "Then re-run: $(bold "bash ~/.ssh/setup.bash")"
+        info "Then re-run: $(bold "bash ~/.ssh/setup.sh")"
         return 1
     fi
 

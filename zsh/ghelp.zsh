@@ -12,7 +12,7 @@ ghelp() {
     local _f="${HOME}/.zsh/git-aliases.zsh"
     if [[ ! -f "$_f" ]]; then
         printf 'ghelp: git-aliases.zsh not found at %s\n' "$_f"
-        printf '       Run: ./install.bash --modules\n'
+        printf '       Run: ./install.sh --modules\n'
         return 1
     fi
 

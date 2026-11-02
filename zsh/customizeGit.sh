@@ -12,7 +12,7 @@ if [ -z "$BASH_VERSION" ]; then
 fi
 # =============================================================================
 # Git Multi-Account Customizer & Manager
-# Location: zsh/customizeGit.bash (installed to ~/.zsh/customizeGit.bash)
+# Location: zsh/customizeGit.sh (installed to ~/.zsh/customizeGit.sh)
 #
 # Interactive TUI tool to manage multiple Git accounts:
 #   - View configured Git accounts
@@ -21,7 +21,7 @@ fi
 #       <short>GClone(), <short>goa(), <short>goan(),
 #       <short>_gConfig(), <short>_vConfig()
 #   - Saves account entries to ~/.config/git/accountList
-#   - Offers to trigger SSH key setup (.ssh/setup.bash) directly
+#   - Offers to trigger SSH key setup (.ssh/setup.sh) directly
 # =============================================================================
 set -eo pipefail
 
@@ -49,7 +49,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Locate the repository copy (may be absent when only ~/.zsh was installed).
 REPO_DIR=""
-if [[ -f "$SCRIPT_DIR/customizeGit.bash" && -d "$SCRIPT_DIR/../.config" ]]; then
+if [[ -f "$SCRIPT_DIR/customizeGit.sh" && -d "$SCRIPT_DIR/../.config" ]]; then
     REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
@@ -115,7 +115,7 @@ save_account_list() {
         echo "# ============================================================================="
         echo "# Git Accounts Configuration List"
         echo "# Location: ~/.config/git/accountList"
-        echo "# Managed by customizeGit.bash"
+        echo "# Managed by customizeGit.sh"
         echo "# Format: USERNAME:EMAIL:SHORTNAME"
         echo "# ============================================================================="
         echo
@@ -137,7 +137,7 @@ generate_git_custom_zsh() {
     cat <<'BASE_EOF' > "$tmp_file"
 # ============================================================
 # Account Specific Git Configurations, Clone & Remote Wrappers
-# Generated locally by customizeGit.bash — DO NOT edit by hand.
+# Generated locally by customizeGit.sh — DO NOT edit by hand.
 #
 # Generic helpers (EQLINE, reset_vConfig, gClone, gAddRemote) live in
 # ~/.zsh/git-functions.zsh, installed by the Shell module.
@@ -424,17 +424,17 @@ ask_ssh_setup() {
     read -r -p "  Would you like to configure/generate SSH keys for your accounts now? [Y/n]: " run_ssh
     if [[ -z "$run_ssh" || "$run_ssh" =~ ^[Yy] ]]; then
         local ssh_script=""
-        if [[ -f "$HOME/.ssh/setup.bash" ]]; then
-            ssh_script="$HOME/.ssh/setup.bash"
-        elif [[ -f "$REPO_DIR/.ssh/setup.bash" ]]; then
-            ssh_script="$REPO_DIR/.ssh/setup.bash"
+        if [[ -f "$HOME/.ssh/setup.sh" ]]; then
+            ssh_script="$HOME/.ssh/setup.sh"
+        elif [[ -f "$REPO_DIR/.ssh/setup.sh" ]]; then
+            ssh_script="$REPO_DIR/.ssh/setup.sh"
         fi
 
         if [[ -n "$ssh_script" ]]; then
             info "Launching SSH Setup helper: $ssh_script..."
             bash "$ssh_script"
         else
-            warn "Could not locate setup.bash. Run 'ssh-setup' once installed."
+            warn "Could not locate setup.sh. Run 'ssh-setup' once installed."
         fi
     else
         info "Skipping SSH setup. You can run it anytime with: $(bold "ssh-setup")"
@@ -497,7 +497,7 @@ main() {
     done
 }
 
-# Non-interactive entry point used by setup.bash / the installer when an
+# Non-interactive entry point used by setup.sh / the installer when an
 # account is added outside this menu and the generated wrappers need to be
 # refreshed without opening the TUI.
 case "${1:-}" in

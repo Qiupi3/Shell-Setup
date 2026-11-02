@@ -8,13 +8,13 @@ Run the universal installer from the repository root:
 
 ```bash
 cd ~/Shell-Setup
-./install.bash
+./install.sh
 ```
 
 This automates:
 - Copying the modular `.zshrc` to `~/.zshrc` (with support for Apple Silicon `/opt/homebrew` and Intel `/usr/local`)
 - Copying modular config files from root `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-functions.zsh`, `prompt.zsh`) to `~/.zsh/`
-- Copying macOS base aliases (`base.bash` with Homebrew shortcuts `bcu`, `bcc`) to `~/.zsh/base.zsh`
+- Copying macOS base aliases (`base.sh` with Homebrew shortcuts `bcu`, `bcc`) to `~/.zsh/base.zsh`
 - Installing `zsh-syntax-highlighting` into `~/.zsh/plugins/` (if not already present)
 - Installing the Neovim configuration from `.config/nvim/` to `~/.config/nvim/` **only when Option 2 is selected**
 - Setting up global Git configurations (`~/.gitconfig` & `~/.config/git/allowed_signers`) and SSH files **only when Option 3 is selected**
@@ -23,7 +23,7 @@ This automates:
 ## Cleanup & System Analysis Utilities
 
 macOS-specific storage analysis, package analyzer, and smart cleanup utility:
-- `clean-up.bash`: Unified interactive cleanup editor, package usage analyzer, and storage inspector:
+- `clean-up.sh`: Unified interactive cleanup editor, package usage analyzer, and storage inspector:
   - **Smart Cache & Temp Cleanup**: Scans system caches (Safari, Chrome profiles & AI models, system logs) down to developer-specific tools (Homebrew, Node/npm, Python, Cargo, Go, Gradle, Xcode DerivedData, Android Studio, JetBrains IDEs, VS Code).
   - **Package & Project Usage Analyzer**: Scans Homebrew formulas, installed sizes, and dependencies/reverse dependencies. Prompts for folder to scan (default: user home `~`), correlates packages with active projects, identifies unused packages, and supports Full Cleanup (deleting project folder AND uninstalling package bundle).
   - **Git Unsaved Changes Detection**: Warns if a project has uncommitted changes, untracked files, or unpushed commits before deletion.

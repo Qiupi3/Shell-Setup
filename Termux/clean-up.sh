@@ -12,7 +12,7 @@ if [ -z "$BASH_VERSION" ] || [ -n "$POSIXLY_CORRECT" ]; then
 fi
 
 # =============================================================================
-# Termux Storage Usage, Package Analyzer & Smart Cleanup (Termux/clean-up.bash)
+# Termux Storage Usage, Package Analyzer & Smart Cleanup (Termux/clean-up.sh)
 #
 # Unified cleanup utility, package dependency analyzer & storage inspector for Termux.
 # Features:
@@ -27,13 +27,13 @@ fi
 #   4. Strict safety: Shows path to be cleared and confirms every deletion
 #
 # Usage:
-#   ./clean-up.bash             Launch interactive cleanup and analysis menu
-#   ./clean-up.bash --cache     Launch cache & temp TUI cleanup editor
-#   ./clean-up.bash --packages  Launch package & project analyzer directly
-#   ./clean-up.bash --scan      Report cleanable sizes and package usage without deleting
-#   ./clean-up.bash --dry-run   Simulate actions without deleting files or packages
-#   ./clean-up.bash --all       Clean all detected cache targets (with confirmation)
-#   ./clean-up.bash --help      Show this help message
+#   ./clean-up.sh             Launch interactive cleanup and analysis menu
+#   ./clean-up.sh --cache     Launch cache & temp TUI cleanup editor
+#   ./clean-up.sh --packages  Launch package & project analyzer directly
+#   ./clean-up.sh --scan      Report cleanable sizes and package usage without deleting
+#   ./clean-up.sh --dry-run   Simulate actions without deleting files or packages
+#   ./clean-up.sh --all       Clean all detected cache targets (with confirmation)
+#   ./clean-up.sh --help      Show this help message
 # =============================================================================
 set -o pipefail
 shopt -s nullglob 2>/dev/null || true
@@ -382,7 +382,7 @@ detect_project_types() {
     types="$types nvim"
   fi
   # Shell script / installer project
-  if compgen -G "$dir/*.sh" >/dev/null 2>&1 || compgen -G "$dir/*.bash" >/dev/null 2>&1 || compgen -G "$dir/*.zsh" >/dev/null 2>&1 || [[ -f "$dir/install.bash" || -f "$dir/install.sh" ]]; then
+  if compgen -G "$dir/*.sh" >/dev/null 2>&1 || compgen -G "$dir/*.zsh" >/dev/null 2>&1 || [[ -f "$dir/install.sh" ]]; then
     types="$types shell"
   fi
   # Git repo
@@ -1292,7 +1292,7 @@ clean_up() {
       -h|--help)
         cat <<EOF
 ${B}Termux Smart Cleanup & Package Analyzer${N}
-Usage: ./clean-up.bash [OPTIONS]
+Usage: ./clean-up.sh [OPTIONS]
 
 Options:
   --cache         Launch smart cache & temporary files TUI checklist editor

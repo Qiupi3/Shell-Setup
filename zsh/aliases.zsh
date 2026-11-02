@@ -30,12 +30,12 @@ alias trview="tree -a -L 2 -h -I 'node_modules|.git|cache'"
 alias trp='tree -P' # match pattern
 
 # SSH Setup Helper
-alias ssh-setup='bash ~/.ssh/setup.bash'
-alias setup-ssh='bash ~/.ssh/setup.bash'
+alias ssh-setup='bash ~/.ssh/setup.sh'
+alias setup-ssh='bash ~/.ssh/setup.sh'
 
 # Git Account Customizer Helper
-alias git-accounts='bash ~/.zsh/customizeGit.bash'
-alias custom-git='bash ~/.zsh/customizeGit.bash'
+alias git-accounts='bash ~/.zsh/customizeGit.sh'
+alias custom-git='bash ~/.zsh/customizeGit.sh'
 
 # OpenCode
 alias opc='opencode'

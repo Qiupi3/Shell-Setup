@@ -117,7 +117,41 @@ $HOME/storage/shared/Termux-SSH-Backup/
 - **AES-256**, SHA-512 key derivation with 65,011,712 S2K iterations, zlib compression, and MDC integrity protection.
 - The passphrase is read with a hidden prompt (`read -s`), passed to GPG through file descriptor 3, and never written to disk, command-line arguments, or shell history.
 - On backup the passphrase must be at least 12 characters and entered twice; restore allows three attempts.
-- If `gpg` is missing, the script installs `gnupg` automatically (`pkg install -y gnupg` in Termux, `apt-get install -y gnupg` in proot-distro).
+- If `gpg` is missing, the script installs `gnupg` and `libgcrypt` automatically (`pkg install -y gnupg libgcrypt` in Termux, `apt-get install -y gnupg libgcrypt20` in proot-distro).
+- Before prompting for the passphrase, the script runs a GPG health check. If `gpg` cannot start, backup and restore stop immediately instead of failing halfway through.
+
+### Fixing `libgcrypt is too old`
+
+If GPG aborts with:
+
+```text
+gpg: Fatal: libgcrypt is too old (need 1.12.0, have 1.11.0-unknown)
+```
+
+the installed `gnupg` binary was built against a newer `libgcrypt` than the one on the device. This happens after a partial upgrade, with a package pinned by `apt-mark hold`, or with a stale package mirror. The script detects this and offers to repair it; the manual fix in Termux native is:
+
+```bash
+pkg update && pkg upgrade -y
+pkg install -y libgcrypt gnupg
+gpg --version | grep libgcrypt    # must report 1.12.0 or newer
+```
+
+Inside proot-distro:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --reinstall libgcrypt20 gnupg
+```
+
+If the version is still old, check for a held package or a shadowed library:
+
+```bash
+apt-mark showhold                 # unhold libgcrypt if listed
+echo "$LD_LIBRARY_PATH $LD_PRELOAD"
+ldd "$(command -v gpg)" | grep libgcrypt
+```
+
+If `LD_LIBRARY_PATH` or `LD_PRELOAD` points at another prefix (for example a leftover proot or manually built `libgcrypt`), start a clean shell with `unset LD_LIBRARY_PATH LD_PRELOAD` and retry. `./Termux/ssh-backup.sh --status` now reports the GPG/libgcrypt versions and prints the fix when GPG is broken.
 
 The decrypted archive contains the per-environment layout:
 

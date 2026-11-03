@@ -103,6 +103,7 @@ KEEP_BACKUP=0
 PASSPHRASE=""
 TEMP_DIRS=()
 TEMP_ARCHIVE=""
+GPG_LAST_ERROR=""
 
 BACKUP_LABELS=()
 BACKUP_SOURCES=()
@@ -175,8 +176,14 @@ Encryption:
   characters. Restore allows three attempts.
 
   If gpg is missing, gnupg is installed automatically:
-    Termux native : pkg install -y gnupg
-    proot-distro  : apt-get install -y gnupg
+    Termux native : pkg install -y gnupg libgcrypt
+    proot-distro  : apt-get install -y gnupg libgcrypt20
+
+  If gpg fails with "libgcrypt is too old", the gnupg and libgcrypt
+  packages are out of sync. The script offers to repair this automatically.
+  Manual fix:
+    Termux native : pkg update && pkg upgrade -y && pkg install -y libgcrypt gnupg
+    proot-distro  : apt-get update && apt-get install -y --reinstall libgcrypt20 gnupg
 
 Archive layout:
   termux/.ssh
@@ -362,29 +369,35 @@ ensure_android_storage() {
 }
 
 # -----------------------------------------------------------------------------
-# GPG Installation & Detection
+# GPG Installation & Health Check
 # -----------------------------------------------------------------------------
+# gnupg is built against a specific libgcrypt and refuses to start when the
+# runtime library is older, e.g.:
+#   gpg: Fatal: libgcrypt is too old (need 1.12.0, have 1.11.0-unknown)
+# This normally means the gnupg and libgcrypt packages are out of sync (a
+# partial upgrade, a held package, or a stale mirror). Detect it up front and
+# repair it before asking for a passphrase or touching the archive.
 install_gpg() {
     if [[ $IN_PROOT -eq 1 ]]; then
         if command -v apt-get >/dev/null 2>&1; then
             if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-                apt-get install -y gnupg || {
-                    apt-get update && apt-get install -y gnupg
+                apt-get install -y gnupg libgcrypt20 || {
+                    apt-get update && apt-get install -y gnupg libgcrypt20
                 }
             else
-                sudo apt-get install -y gnupg || {
-                    sudo apt-get update && sudo apt-get install -y gnupg
+                sudo apt-get install -y gnupg libgcrypt20 || {
+                    sudo apt-get update && sudo apt-get install -y gnupg libgcrypt20
                 }
             fi
             return $?
         fi
     else
         if command -v pkg >/dev/null 2>&1; then
-            pkg install -y gnupg
+            pkg install -y gnupg libgcrypt
             return $?
         elif [[ -x "$TERMUX_PREFIX_DIR/bin/pkg" ]]; then
             PATH="$TERMUX_PREFIX_DIR/bin:$PATH" \
-                "$TERMUX_PREFIX_DIR/bin/pkg" install -y gnupg
+                "$TERMUX_PREFIX_DIR/bin/pkg" install -y gnupg libgcrypt
             return $?
         fi
     fi
@@ -392,32 +405,180 @@ install_gpg() {
     return 1
 }
 
+gpg_selfcheck() {
+    local out=""
+
+    out="$(gpg --version 2>&1)" || {
+        GPG_LAST_ERROR="$out"
+        return 1
+    }
+
+    GPG_LAST_ERROR=""
+    return 0
+}
+
+gpg_failure_summary() {
+    if printf '%s\n' "$GPG_LAST_ERROR" | grep -qi 'libgcrypt is too old'; then
+        printf 'the installed libgcrypt is older than this gnupg build requires'
+    elif printf '%s\n' "$GPG_LAST_ERROR" | grep -qi 'error while loading shared libraries'; then
+        printf 'a shared library required by gpg is missing'
+    else
+        printf 'gpg exited with an error'
+    fi
+}
+
+gpg_libgcrypt_path() {
+    local bin="" lib=""
+
+    bin="$(command -v gpg 2>/dev/null)" || return 0
+    command -v ldd >/dev/null 2>&1 || return 0
+
+    lib="$(ldd "$bin" 2>/dev/null | awk '/libgcrypt/ {print $3; exit}')"
+    [[ -n "$lib" ]] && printf '%s\n' "$lib"
+}
+
+print_gpg_runtime_details() {
+    local bin="" lib="" line=""
+
+    bin="$(command -v gpg 2>/dev/null || true)"
+    [[ -n "$bin" ]] && info "gpg binary: $bin"
+
+    lib="$(gpg_libgcrypt_path)"
+    [[ -n "$lib" ]] && info "libgcrypt library: $lib"
+
+    line="$(printf '%s\n' "$GPG_LAST_ERROR" | grep -i 'libgcrypt' | head -n 1)"
+    [[ -n "$line" ]] && info "gpg says: $line"
+
+    if [[ -n "${LD_LIBRARY_PATH:-}" || -n "${LD_PRELOAD:-}" ]]; then
+        warn "LD_LIBRARY_PATH/LD_PRELOAD is set and may load an old libgcrypt."
+    fi
+}
+
+print_gpg_fix_hint() {
+    if [[ $IN_PROOT -eq 1 ]]; then
+        err "Fix inside the container:"
+        err "  apt-get update && apt-get install -y --reinstall libgcrypt20 gnupg"
+    else
+        err "Fix in Termux native:"
+        err "  pkg update && pkg upgrade -y"
+        err "  pkg install -y libgcrypt gnupg"
+        err "Verify with: gpg --version | grep libgcrypt   (needs 1.12.0 or newer)"
+    fi
+
+    if [[ -n "${LD_LIBRARY_PATH:-}" || -n "${LD_PRELOAD:-}" ]]; then
+        err "Also run 'unset LD_LIBRARY_PATH LD_PRELOAD' in this shell, then retry."
+    fi
+}
+
+termux_repair_gpg() {
+    local pkgcmd="pkg"
+
+    if ! command -v pkg >/dev/null 2>&1; then
+        [[ -x "$TERMUX_PREFIX_DIR/bin/pkg" ]] || return 1
+        pkgcmd="$TERMUX_PREFIX_DIR/bin/pkg"
+    fi
+
+    # A package pinned with apt-mark hold silently blocks the upgrade.
+    if command -v apt-mark >/dev/null 2>&1 &&
+        apt-mark showhold 2>/dev/null | grep -qx 'libgcrypt'; then
+        info "Removing the apt hold on libgcrypt..."
+        apt-mark unhold libgcrypt >/dev/null 2>&1 || true
+    fi
+
+    info "Refreshing Termux package lists..."
+    "$pkgcmd" update -y || true
+
+    info "Upgrading libgcrypt and gnupg..."
+    "$pkgcmd" install -y libgcrypt libgpg-error gnupg || return 1
+
+    # Reinstall covers the case where apt already considers the packages current
+    # but the on-device library files are stale or were replaced.
+    "$pkgcmd" install -y --reinstall libgcrypt libgpg-error gnupg >/dev/null 2>&1 || true
+
+    hash -r 2>/dev/null || true
+    return 0
+}
+
+proot_repair_gpg() {
+    local sudo_cmd=""
+
+    command -v apt-get >/dev/null 2>&1 || return 1
+
+    if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+        command -v sudo >/dev/null 2>&1 || return 1
+        sudo_cmd="sudo"
+    fi
+
+    info "Refreshing container package lists..."
+    $sudo_cmd apt-get update || true
+
+    info "Reinstalling libgcrypt and gnupg..."
+    $sudo_cmd apt-get install -y --reinstall libgcrypt20 gnupg || return 1
+
+    hash -r 2>/dev/null || true
+    return 0
+}
+
+repair_gpg() {
+    if [[ $IN_PROOT -eq 1 ]]; then
+        proot_repair_gpg
+    else
+        termux_repair_gpg
+    fi
+}
+
 ensure_gpg() {
-    if command -v gpg >/dev/null 2>&1; then
+    if ! command -v gpg >/dev/null 2>&1; then
+        warn "gpg was not found. Installing gnupg..."
+
+        if ! install_gpg; then
+            err "Could not install gnupg automatically."
+            print_gpg_fix_hint
+            return 1
+        fi
+
+        hash -r 2>/dev/null || true
+
+        if ! command -v gpg >/dev/null 2>&1; then
+            err "gnupg was installed but gpg is still not available on PATH."
+            return 1
+        fi
+
+        if gpg_selfcheck; then
+            info "Installed: $(gpg --version 2>/dev/null | head -n 1)"
+            return 0
+        fi
+    fi
+
+    if gpg_selfcheck; then
         return 0
     fi
 
-    warn "gpg was not found. Installing gnupg..."
+    warn "gpg is installed but cannot start: $(gpg_failure_summary)."
+    printf '    %s\n' "$(printf '%s\n' "$GPG_LAST_ERROR" | head -n 1)" >&2
+    print_gpg_runtime_details
 
-    if ! install_gpg; then
-        err "Could not install gnupg automatically."
-        if [[ $IN_PROOT -eq 1 ]]; then
-            err "Install it manually: apt-get install -y gnupg"
-        else
-            err "Install it manually: pkg install -y gnupg"
-        fi
+    if ! confirm "Repair the GPG/libgcrypt installation now?"; then
+        print_gpg_fix_hint
         return 1
+    fi
+
+    info "Repairing the GPG/libgcrypt installation..."
+    if ! repair_gpg; then
+        err "The automatic repair did not complete."
     fi
 
     hash -r 2>/dev/null || true
 
-    if ! command -v gpg >/dev/null 2>&1; then
-        err "gnupg was installed but gpg is still not available on PATH."
-        return 1
+    if gpg_selfcheck; then
+        info "GPG is working: $(gpg --version 2>/dev/null | head -n 1)"
+        return 0
     fi
 
-    info "Installed: $(gpg --version 2>/dev/null | head -n 1)"
-    return 0
+    err "GPG is still broken after the repair attempt."
+    print_gpg_runtime_details
+    print_gpg_fix_hint
+    return 1
 }
 
 # -----------------------------------------------------------------------------
@@ -708,6 +869,7 @@ do_backup() {
 
     if ! gpg_encrypt_stage "$stage" "$BACKUP_ARCHIVE"; then
         err "Encryption failed; the existing backup was not changed."
+        err "Run '$SCRIPT_NAME --status' to check the GPG installation."
         clear_passphrase
         return 1
     fi
@@ -966,7 +1128,18 @@ show_status() {
     echo "  Archive      : $(bold "$BACKUP_ARCHIVE")"
 
     if command -v gpg >/dev/null 2>&1; then
-        echo "  GPG          : $(gpg --version 2>/dev/null | head -n 1)"
+        local gpg_out="" gcry_ver=""
+
+        if gpg_selfcheck; then
+            gpg_out="$(gpg --version 2>/dev/null)"
+            gcry_ver="$(printf '%s\n' "$gpg_out" | awk 'tolower($1) == "libgcrypt" {print $2; exit}')"
+            echo "  GPG          : $(printf '%s\n' "$gpg_out" | head -n 1)"
+            [[ -n "$gcry_ver" ]] && echo "  libgcrypt    : $gcry_ver"
+        else
+            echo "  GPG          : $(yellow "broken — $(gpg_failure_summary)")"
+            print_gpg_runtime_details
+            print_gpg_fix_hint
+        fi
     else
         echo "  GPG          : $(yellow "not installed (installed automatically when needed)")"
     fi

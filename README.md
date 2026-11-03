@@ -119,6 +119,9 @@ Both `ubuntu` and `debian` proot-distro images are supported. On Termux, Option
 choose Ubuntu or Debian, installs the image when it is missing, enters the
 container, and runs Option 1 (Shell environment) inside it.
 
+Convenience aliases: `pd` (`proot-distro`), `pdls` (list distros), `pdi`
+(install), `pdl` (login), and `pdrm` (remove).
+
 You can also do the steps manually: install the image once, log in, and run the
 installer from inside the container:
 
@@ -317,6 +320,8 @@ Shell-Setup/
 ## Unified Git Aliases & Submodule Management
 
 All Git and submodule utilities are consolidated in `zsh/git-aliases.zsh`. Each alias has a concise description, and complex/destructive commands include interactive help/usage when called with `-h` or `--help`.
+
+Useful inspection shortcuts: `gbv` (`git branch -v`), `gbvv` (`git branch -vv`), `gos` (`git remote show <remote>`), and `goso` (`git remote show origin`).
 
 ### Git Submodule Shortcuts
 

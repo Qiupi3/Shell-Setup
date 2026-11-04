@@ -18,4 +18,6 @@ alias pd='proot-distro'            # Manage Linux containers
 alias pdls='proot-distro list'     # List available and installed distros
 alias pdi='proot-distro install'   # Install a distro (e.g. pdi ubuntu)
 alias pdl='proot-distro login'     # Enter a distro (e.g. pdl ubuntu)
+alias pdlu='proot-distro login ubuntu'
+alias pdld='proot-distro login debian'
 alias pdrm='proot-distro remove'   # [DESTRUCTIVE] Remove a distro

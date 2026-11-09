@@ -112,12 +112,12 @@ alias gls='git pull --squash'                               # Pull and squash up
 alias glfh='git fetch origin && git reset --hard origin/main' # [DESTRUCTIVE] Discard local commits and reset to origin/main
 alias glfs='git stash -u && git pull origin main'           # Safely stash unstaged/untracked changes before pulling
 
-alias gh='git push'                                         # Push committed changes to remote repository
-alias ghom='git push origin main'                           # Push current branch to origin main
-alias ghf='git push --force'                                # [DESTRUCTIVE] Force push to remote, overwriting remote history
-alias ghu='git push --set-upstream'                         # Push and set upstream tracking reference
-alias ghuo='git push -u origin'                             # Push and set tracking to origin
-alias ghuom='git push -u origin main'                       # Push and set tracking to origin main
+alias gp='git push'                                         # Push committed changes to remote repository
+alias gpom='git push origin main'                           # Push current branch to origin main
+alias gpf='git push --force'                                # [DESTRUCTIVE] Force push to remote, overwriting remote history
+alias gpu='git push --set-upstream'                         # Push and set upstream tracking reference
+alias gpuo='git push -u origin'                             # Push and set tracking to origin
+alias gpuom='git push -u origin main'                       # Push and set tracking to origin main
 
 alias gf='git fetch'                                        # Download objects and refs from remote repository
 alias gfo='git fetch origin'                                # Fetch latest refs from origin

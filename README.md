@@ -360,7 +360,7 @@ Useful inspection shortcuts: `gbv` (`git branch -v`), `gbvv` (`git branch -vv`),
 
 Commands that can overwrite history or permanently discard uncommitted changes are explicitly tagged:
 - `glfh` (`git fetch origin && git reset --hard origin/main`): `[DESTRUCTIVE]` Discards local changes to match remote.
-- `ghf` (`git push --force`): `[DESTRUCTIVE]` Force pushes and rewrites remote history.
+- `gpf` (`git push --force`): `[DESTRUCTIVE]` Force pushes and rewrites remote history.
 - `grl` (`git restore .`): `[DESTRUCTIVE]` Discards unstaged modifications in current directory.
 - `grth` (`git reset --hard`): `[DESTRUCTIVE]` Deletes uncommitted changes and resets branch HEAD.
 - `gbdf` (`git branch -D`): `[DESTRUCTIVE]` Force deletes a local branch.

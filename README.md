@@ -4,7 +4,7 @@ A modular, cross-platform Zsh and development environment configuration for **Te
 
 ## Features
 
-- **Four selectable modules plus proot-distro setup**: Shell environment, Neovim, Git accounts & SSH, and Extensions — plus an optional Ubuntu/Debian proot-distro bootstrap. Install only what you need; each module is self-sufficient.
+- **Selectable modules**: Shell environment, Neovim, Git accounts & SSH, Extensions, and Uninstall — plus an optional Ubuntu/Debian proot-distro bootstrap. Install only what you need; each module is self-sufficient.
 - **Modular Zsh**: Core shell modules are maintained in `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-functions.zsh`, `prompt.zsh`), copied to `~/.zsh/`, and sourced dynamically by `~/.zshrc`.
 - **Environment Base Configs**: Platform-specific shortcuts (`base.sh`) installed as `~/.zsh/base.zsh` (e.g., Homebrew aliases on macOS, pkg/storage aliases on Termux, sudo-aware apt aliases on Ubuntu/Debian).
 - **Neovim as the default editor**: Config from `.config/nvim/` is installed to `~/.config/nvim`, with an `EDITOR`/`VISUAL` block appended to `~/.zshrc` and `git core.editor` set. Owned exclusively by Option 2.
@@ -12,7 +12,8 @@ A modular, cross-platform Zsh and development environment configuration for **Te
 - **Git accounts without leaking data**: `customizeGit.sh` writes accounts and generated wrappers only under `$HOME`. The repository ships no usernames, emails, or private wrappers.
 - **SSH key audit**: existing keys in `~/.ssh` are inspected and can be mapped to a Git account or to commit signing without regenerating them. New `ed25519` keys, `allowed_signers`, and host aliases are handled by `ssh-setup`.
 - **Termux SSH backup**: `Termux/ssh-backup.sh` backs up `~/.ssh` from Termux native and every proot-distro container as a single passphrase-encrypted GPG archive (`Termux-SSH-Backup.tar.gpg`) in Android shared storage, with a matching restore flow, local safety copies, and automatic cleanup after a successful restore. No key file is used.
-- **Selectable extensions**: a multi-select picker (Space to toggle, Enter to install) for individual languages (Python, Node.js, PHP, Go, Rust, Java), CLI tooling (ripgrep, fd, fzf, jq, tmux, gh, …), and AI coding tools (Antigravity, plus OpenCode inside proot-distro) instead of everything at once.
+- **Selectable extensions**: a multi-select picker (Space to toggle, Enter to install) for individual languages (Python, Node.js, PHP, Go, Rust, Java), CLI tooling (ripgrep, fd, fzf, jq, tmux, gh, …), the Flutter SDK on Linux/macOS, and AI coding tools (Antigravity, plus OpenCode inside proot-distro) instead of everything at once.
+- **Extension uninstall**: Option 6 lists only tools that are currently installed and removes the selected ones — OS packages through `apt`/`brew`/`pkg`, and upstream-installed tools (uv, Bun, pnpm, Deno, Flutter, OpenCode, Antigravity) from their `$HOME` directories.
 - **System Cleanup & Storage Inspection**: Tailored storage usage inspection aliases (`hdu`, `pdu`, `sdu`, etc.) and cache cleanup scripts for macOS (`Mac/clean-up.sh`, `Mac/chrclean.sh`) and Termux (`Termux/clean-up.sh`).
 
 ---
@@ -74,7 +75,8 @@ Running without arguments launches an interactive menu:
     3) Git accounts & SSH  — accounts, SSH keys, clone wrappers
     4) Proot-distro        — Termux only: install Ubuntu/Debian + Option 1
     5) Extensions          — multi-select languages and CLI tools
-    6) Everything          — run 1 → 2 → 3 → 5
+    6) Uninstall           — remove installed extensions
+    7) Everything          — run 1 → 2 → 3 → 5
     q) Quit (or press Esc)
 ```
 
@@ -87,6 +89,7 @@ Running without arguments launches an interactive menu:
 | 3. Git & SSH | `openssh-client` (Linux) | `~/.ssh/config`, `~/.ssh/setup.sh`, `~/.config/git/accountList`, `~/.zsh/git-functions.zsh`, generated `~/.zsh/git-custom.zsh` |
 | 4. Proot-distro (Termux) | `proot-distro`, chosen Ubuntu/Debian image | Option 1 applied inside the selected container |
 | 5. Extensions | selected only | none |
+| 6. Uninstall | none (removes selected) | Removes selected extensions: OS packages via the package manager, upstream tools from their `$HOME` directories |
 
 **Essentials are not a separate option.** Each module installs the packages it
 needs. The recommended CLI tools (`tree`, `which`, `man`, `less`, `curl`,
@@ -204,6 +207,8 @@ the alias was ignored.
 ./install.sh --ext python,node,ripgrep   # Option 5 (non-interactive)
 ./install.sh --ext antigravity  # Antigravity CLI (agy)
 ./install.sh --ext opencode     # OpenCode (proot-distro only)
+./install.sh --ext flutter      # Flutter SDK (Linux/macOS)
+./install.sh --uninstall        # Option 6 (interactive uninstall picker)
 ./install.sh --all              # Options 1 + 2 + 3
 ./install.sh --everything       # Options 1 + 2 + 3 + 5
 
@@ -222,20 +227,21 @@ the alias was ignored.
 
 ### Extension picker keys
 
-Option 5 (`--ext` without a list) opens the same style of multi-select UI as
-the cleanup scripts in `Mac/` and `Termux/`:
+Option 5 (`--ext` without a list) and Option 6 (`--uninstall`) open the same
+style of multi-select UI as the cleanup scripts in `Mac/` and `Termux/`:
 
 ```text
 ↑/↓ or j/k   move the cursor
 Space        toggle the highlighted tool
 a            select all (or clear all when everything is selected)
 i            invert the selection
-Enter        install the selected tools
-q or Esc     skip extensions
+Enter        install or remove the selected tools
+q or Esc     skip
 ```
 
 Already-installed tools are marked `[installed]` and can still be selected to
-re-check them. When stdin is not a terminal (pipes, `</dev/null`, CI), the
+re-check them. Option 6 lists only installed extensions, since its selections
+are removed. When stdin is not a terminal (pipes, `</dev/null`, CI), the
 picker falls back to the numbered prompt: space-separated numbers, `a` for all,
 `n` to skip.
 
@@ -264,6 +270,42 @@ curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.sh 
 
 The OpenCode installer writes `~/.opencode/bin`; the path is added to
 `~/.zsh/paths.zsh`, so it is available after `exec zsh` (or a new zsh session).
+
+### Flutter
+
+The picker includes a **Mobile** group with the **Flutter SDK** on Linux and
+macOS. The installer clones the `stable` channel into `~/flutter`, runs the
+first-launch bootstrap (which downloads the matching Dart SDK and engine
+artifacts), disables analytics, and adds `~/flutter/bin` to `~/.zsh/paths.zsh`
+so new shells find `flutter` and `dart`.
+
+Native Termux is not supported because the SDK needs the Linux toolchain; use a
+proot-distro container instead (the picker offers Flutter there):
+
+```bash
+./install.sh --ext flutter
+```
+
+### Uninstalling extensions
+
+Option 6 (`--uninstall`) opens the picker with only currently installed
+extensions, marked `[installed]`. Select what to remove and confirm. OS packages
+are removed with the platform package manager (`apt-get remove`,
+`brew uninstall`, `pkg uninstall`); tools installed by their own upstream
+scripts are removed from their `$HOME` directories:
+
+| Tool | Removed |
+|---|---|
+| uv | `~/.local/bin/uv`, `~/.local/bin/uvx`, `~/.local/share/uv` |
+| Bun | `~/.bun` |
+| pnpm | `~/.local/share/pnpm` (corepack shim if corepack-managed) |
+| Deno | `~/.deno`, `~/.local/bin/deno` |
+| Flutter | `~/flutter` |
+| OpenCode | `~/.opencode`, `~/.local/bin/opencode` |
+| Antigravity CLI | `~/.local/bin/agy`, `~/.antigravity*` |
+
+User configuration and caches are intentionally not purged, and package
+managers may leave orphaned dependencies behind.
 
 ---
 
@@ -295,7 +337,7 @@ Shell-Setup/
 │   ├── aliases.zsh             # General shell aliases & ssh-setup shortcut
 │   ├── git-aliases.zsh         # Unified Git & submodule aliases with safety indicators
 │   ├── git-functions.zsh       # Generic gClone / reset_vConfig helpers (no accounts)
-│   ├── paths.zsh               # Adds ~/.local/bin, OpenCode, Bun, Cargo, Deno, pnpm to PATH
+│   ├── paths.zsh               # Adds ~/.local/bin, OpenCode, Bun, Cargo, Deno, pnpm, Flutter to PATH
 │   ├── customizeGit.sh         # Generates ~/.zsh/git-custom.zsh from your account list
 │   └── prompt.zsh              # Dynamic Git-aware prompt
 ├── Mac/
@@ -391,7 +433,7 @@ custom-git
 4. **Repository stays clean**: every write goes to `$HOME`. `customizeGit.sh` never modifies the cloned repository, so account data cannot leak to another user or the next `git pull`.
 5. **Generic helpers**: `gClone`, `gAddRemote`, and `reset_vConfig` live in `~/.zsh/git-functions.zsh` and contain no account data.
 6. **Seamless SSH transition**: when run from Option 3, the installer handles SSH setup right after the account list, so keys are always attached to a known account. Standalone `git-accounts` still offers SSH setup on exit (set `SHELL_SETUP_NO_SSH_PROMPT=1` to suppress it).
-7. **Path setup**: `~/.zsh/paths.zsh` adds per-user tool directories (`~/.local/bin`, OpenCode, Bun, Cargo, Deno, pnpm, Antigravity) so new zsh sessions find them.
+7. **Path setup**: `~/.zsh/paths.zsh` adds per-user tool directories (`~/.local/bin`, OpenCode, Bun, Cargo, Deno, pnpm, Flutter, Antigravity) so new zsh sessions find them.
 
 ---
 

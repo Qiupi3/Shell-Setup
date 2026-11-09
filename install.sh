@@ -87,6 +87,7 @@ fi
 #   Option 4  Proot-distro       — install a choosable distro and set up
 #                                  Option 1 inside it (Termux only)
 #   Option 5  Extensions         — pick languages and CLI tooling individually
+#   Option 6  Uninstall          — remove installed extensions
 #
 # User data is always written under $HOME. The repository is never modified.
 #
@@ -99,6 +100,7 @@ fi
 #   ./install.sh --proot [DISTRO]   # Option 4 (ubuntu or debian)
 #   ./install.sh --ext              # Option 5 (interactive picker)
 #   ./install.sh --ext python,node  # Option 5 (non-interactive)
+#   ./install.sh --uninstall        # Option 6 (interactive picker)
 #   ./install.sh --all              # Options 1 + 2 + 3
 #   ./install.sh --everything       # Options 1 + 2 + 3 + 5
 #
@@ -502,6 +504,35 @@ pkg_install() {
             fi
             as_root env DEBIAN_FRONTEND=noninteractive "$aptg" install -y \
                 -o Dpkg::Options::="--force-confold" "$pkg"
+            ;;
+    esac
+}
+
+# Remove one OS package. User configuration and caches are intentionally kept
+# (apt remove, not purge); package managers may also keep unused dependencies.
+pkg_uninstall() {
+    local pkg="$1"
+    case "$PKG_MANAGER" in
+        pkg)
+            if [[ -x /data/data/com.termux/files/usr/bin/pkg ]]; then
+                env PATH=/data/data/com.termux/files/usr/bin:$PATH /data/data/com.termux/files/usr/bin/pkg uninstall -y "$pkg"
+            elif command -v pkg >/dev/null 2>&1; then
+                pkg uninstall -y "$pkg"
+            else
+                err "pkg not found"
+                return 1
+            fi
+            ;;
+        brew)
+            brew uninstall "$pkg"
+            ;;
+        apt)
+            local aptg="/usr/bin/apt-get"
+            [[ -x "$aptg" ]] || aptg="$(command -v apt-get 2>/dev/null || echo apt-get)"
+            if [[ "$aptg" == *termux/* ]]; then
+                aptg="/usr/bin/apt-get"
+            fi
+            as_root env DEBIAN_FRONTEND=noninteractive "$aptg" remove -y "$pkg"
             ;;
     esac
 }
@@ -1421,6 +1452,7 @@ ext_catalog() {
     EXT_INSTALLED=()
     EXT_CUR=0
     EXT_SCROLL=0
+    EXT_ACTION="install"
 
     case "$ENV_NAME" in
         linux)
@@ -1445,7 +1477,21 @@ ext_catalog() {
             EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
     esac
 
+    ext_catalog_flutter
     ext_catalog_ai_tools
+}
+
+# Flutter ships as a git checkout rather than an OS package, so it is not part
+# of the per-OS package catalogs. Native Termux lacks the Linux toolchain the
+# SDK needs, hence Linux (including proot-distro) and macOS only.
+ext_catalog_flutter() {
+    if [[ "$ENV_NAME" == "linux" || "$ENV_NAME" == "mac" ]]; then
+        EXT_IDS+=(flutter)
+        EXT_NAMES+=("Flutter")
+        EXT_DESCS+=("Flutter SDK + Dart")
+        EXT_PKGS+=("")
+        EXT_GROUPS+=("Mobile")
+    fi
 }
 
 # Tools installed by their own upstream installer instead of an OS package.
@@ -1568,6 +1614,114 @@ install_deno_ext() {
     fi
 }
 
+install_flutter_ext() {
+    header "Installing Flutter"
+
+    local flutter_dir="$HOME/flutter"
+    local flutter_bin="$flutter_dir/bin/flutter"
+
+    if native_cmd_exists flutter; then
+        info "Flutter — $(green "already installed") ($(flutter --version 2>/dev/null | head -n1 || echo "installed"))"
+        return 0
+    fi
+
+    if [[ -x "$flutter_bin" ]]; then
+        export PATH="$flutter_dir/bin:$PATH"
+        info "Flutter — $(green "already installed") ($("$flutter_bin" --version 2>/dev/null | head -n1 || echo "installed"))"
+        return 0
+    fi
+
+    if [[ -d "$flutter_dir" ]]; then
+        err "$flutter_dir already exists but is not a Flutter SDK."
+        err "Move or remove it, then re-run this extension."
+        return 1
+    fi
+
+    # The SDK is distributed as a git checkout, not an OS package.
+    pkg_installed git || pkg_ensure git
+
+    info "Cloning the Flutter stable channel → $flutter_dir"
+    if ! git clone -b stable https://github.com/flutter/flutter.git "$flutter_dir"; then
+        err "Flutter installation failed."
+        return 1
+    fi
+
+    export PATH="$flutter_dir/bin:$PATH"
+
+    # The first invocation downloads the Dart SDK and engine artifacts for this
+    # platform, so it needs network access and can take a few minutes.
+    info "Bootstrapping Flutter (downloads the Dart SDK on first run)..."
+    if ! "$flutter_bin" --version; then
+        err "Flutter bootstrap failed."
+        return 1
+    fi
+
+    "$flutter_bin" config --no-analytics >/dev/null 2>&1 || true
+    info "Flutter installed: $("$flutter_bin" --version 2>/dev/null | head -n1 || echo "flutter")"
+}
+
+# Best-effort removal of tools installed by their own upstream installers.
+# Everything they write lives under $HOME, so no package manager is involved.
+uninstall_uv_ext() {
+    info "Removing uv..."
+    rm -f "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx"
+    rm -rf "$HOME/.local/share/uv"
+}
+
+uninstall_bun_ext() {
+    info "Removing Bun..."
+    rm -rf "$HOME/.bun"
+}
+
+uninstall_pnpm_ext() {
+    info "Removing pnpm..."
+    if [[ -d "$HOME/.local/share/pnpm" ]]; then
+        rm -rf "$HOME/.local/share/pnpm"
+    elif native_cmd_exists corepack; then
+        info "pnpm appears to be managed by corepack; disabling its shim..."
+        corepack disable pnpm >/dev/null 2>&1 || warn "corepack disable pnpm failed."
+    else
+        warn "pnpm installation directory not found."
+    fi
+}
+
+uninstall_deno_ext() {
+    info "Removing Deno..."
+    rm -rf "$HOME/.deno"
+    rm -f "$HOME/.local/bin/deno"
+}
+
+uninstall_flutter_ext() {
+    info "Removing Flutter..."
+    rm -rf "$HOME/flutter"
+}
+
+uninstall_antigravity_ext() {
+    info "Removing Antigravity CLI..."
+    rm -f "$HOME/.local/bin/agy"
+    rm -rf "$HOME/.antigravity" "$HOME/.antigravity-ide"
+}
+
+uninstall_opencode_ext() {
+    info "Removing OpenCode..."
+    rm -rf "$HOME/.opencode"
+    rm -f "$HOME/.local/bin/opencode"
+}
+
+# Return the custom uninstaller function for an extension, or nothing.
+ext_uninstaller_fn() {
+    case "$1" in
+        antigravity) echo "uninstall_antigravity_ext" ;;
+        opencode)    echo "uninstall_opencode_ext" ;;
+        uv)          echo "uninstall_uv_ext" ;;
+        bun)         echo "uninstall_bun_ext" ;;
+        pnpm)        echo "uninstall_pnpm_ext" ;;
+        deno)        echo "uninstall_deno_ext" ;;
+        flutter)     echo "uninstall_flutter_ext" ;;
+        *)           echo "" ;;
+    esac
+}
+
 # Return the custom installer function for an extension, or nothing.
 ext_installer_fn() {
     case "$1" in
@@ -1577,6 +1731,7 @@ ext_installer_fn() {
         bun)         echo "install_bun_ext" ;;
         pnpm)        echo "install_pnpm_ext" ;;
         deno)        echo "install_deno_ext" ;;
+        flutter)     echo "install_flutter_ext" ;;
         *)           echo "" ;;
     esac
 }
@@ -1590,6 +1745,7 @@ ext_command() {
         bun)         echo "bun" ;;
         pnpm)        echo "pnpm" ;;
         deno)        echo "deno" ;;
+        flutter)     echo "flutter" ;;
         *)           echo "" ;;
     esac
 }
@@ -1611,6 +1767,10 @@ ext_installed() {
     # to exist on PATH; don't advertise it as an available extension there.
     if [[ "${EXT_IDS[$idx]}" == "opencode" && "$IS_PROOT_DISTRO" -ne 1 ]]; then
         return 1
+    fi
+    # Flutter installs into ~/flutter/bin, which may not be on PATH yet.
+    if [[ "${EXT_IDS[$idx]}" == "flutter" && -x "$HOME/flutter/bin/flutter" ]]; then
+        return 0
     fi
     cmd="$(ext_command "${EXT_IDS[$idx]}")"
     if [[ -n "$cmd" ]]; then
@@ -1642,7 +1802,7 @@ install_paths_module() {
 configure_extension_post() {
     local id="$1"
     # Ensure common bin dirs are on PATH
-    export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share/pnpm:$PATH"
+    export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share/pnpm:$HOME/flutter/bin:$PATH"
     mkdir -p "$HOME/.local/bin" "$HOME/.opencode/bin" 2>/dev/null || true
 
     case "$id" in
@@ -1715,6 +1875,9 @@ configure_extension_post() {
         deno)
             export PATH="$HOME/.deno/bin:$PATH"
             ;;
+        flutter)
+            export PATH="$HOME/flutter/bin:$PATH"
+            ;;
         *)
             ;;
     esac
@@ -1752,11 +1915,126 @@ install_ext_ids() {
     done
 }
 
+# Reduce the catalog to installed extensions for the uninstall picker.
+# Returns 1 when nothing in the catalog is installed.
+ext_filter_installed() {
+    local i
+    local -a ids=() names=() descs=() pkgs=() groups=()
+
+    for i in "${!EXT_IDS[@]}"; do
+        if ext_installed "$i"; then
+            ids+=("${EXT_IDS[$i]}")
+            names+=("${EXT_NAMES[$i]}")
+            descs+=("${EXT_DESCS[$i]}")
+            pkgs+=("${EXT_PKGS[$i]}")
+            groups+=("${EXT_GROUPS[$i]}")
+        fi
+    done
+
+    (( ${#ids[@]} > 0 )) || return 1
+
+    EXT_IDS=("${ids[@]}")
+    EXT_NAMES=("${names[@]}")
+    EXT_DESCS=("${descs[@]}")
+    EXT_PKGS=("${pkgs[@]}")
+    EXT_GROUPS=("${groups[@]}")
+    return 0
+}
+
+uninstall_ext_id() {
+    local id="$1" idx pkg fn failed=0
+
+    if ! idx="$(ext_index "$id")"; then
+        warn "Unknown extension: $id"
+        return 1
+    fi
+
+    fn="$(ext_uninstaller_fn "$id")"
+    if [[ -n "$fn" ]]; then
+        "$fn"
+        return
+    fi
+
+    for pkg in ${EXT_PKGS[$idx]}; do
+        info "Removing package: $(bold "$pkg")"
+        pkg_uninstall "$pkg" || failed=1
+    done
+    return "$failed"
+}
+
+uninstall_ext_ids() {
+    local id idx rc=0
+    for id in "$@"; do
+        if ! idx="$(ext_index "$id")"; then
+            warn "Unknown extension: $id"
+            rc=1
+            continue
+        fi
+        if ! ext_installed "$idx"; then
+            warn "${EXT_NAMES[$idx]} — $(yellow "not installed")"
+            continue
+        fi
+        uninstall_ext_id "$id" || rc=1
+    done
+    return "$rc"
+}
+
+uninstall_extensions_menu() {
+    header "Uninstall Extensions"
+
+    ext_catalog
+    if ! ext_filter_installed; then
+        info "No extensions from this catalog are installed."
+        return 0
+    fi
+
+    local i
+    for i in "${!EXT_IDS[@]}"; do
+        EXT_SELECTED[$i]=0
+        EXT_INSTALLED[$i]=1
+    done
+
+    EXT_ACTION="uninstall"
+    if [[ -t 0 && -t 1 ]]; then
+        if ! ext_select_tui; then
+            info "Skipping uninstall."
+            return 0
+        fi
+    else
+        if ! ext_select_prompt; then
+            info "Skipping uninstall."
+            return 0
+        fi
+    fi
+
+    local -a chosen=()
+    for i in "${!EXT_IDS[@]}"; do
+        [[ "${EXT_SELECTED[$i]}" -eq 1 ]] && chosen+=("${EXT_IDS[$i]}")
+    done
+
+    if [[ ${#chosen[@]} -eq 0 ]]; then
+        info "Nothing selected."
+        return 0
+    fi
+
+    echo
+    info "Selected for removal: $(bold "${chosen[*]}")"
+    warn "Packages are removed with the system package manager; configuration and caches may remain."
+    if ! confirm "  Uninstall ${#chosen[@]} extension(s)?" n; then
+        info "Cancelled."
+        return 0
+    fi
+
+    if ! uninstall_ext_ids "${chosen[@]}"; then
+        warn "Some removals did not complete; review the messages above."
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Extension picker
 # ---------------------------------------------------------------------------
 # Interactive multi-select TUI, modeled on the clean-up scripts:
-#   ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install · q skip
+#   ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install/remove · q skip
 # When stdin/stdout is not a terminal (pipes, CI, `</dev/null`) it falls back to
 # a numbered prompt so automation keeps working.
 ext_tui_cleanup() {
@@ -1800,9 +2078,15 @@ ext_draw_tui() {
     fi
 
     out=""
+    local action="${EXT_ACTION:-install}"
+    local title="Shell-Setup Extensions" verb="install"
+    if [[ "$action" == "uninstall" ]]; then
+        title="Shell-Setup Uninstall"
+        verb="uninstall"
+    fi
     out+=$'\033[H'
-    out+=$'\033[2K'"  $(bold "Shell-Setup Extensions")"$'\n'
-    out+=$'\033[2K'"  $(dim "Space toggles selections, Enter installs the selected tools.")"$'\n'
+    out+=$'\033[2K'"  $(bold "$title")"$'\n'
+    out+=$'\033[2K'"  $(dim "Space toggles selections, Enter ${verb}s the selected tools.")"$'\n'
     out+=$'\033[2K\n'
 
     start=$EXT_SCROLL
@@ -1850,7 +2134,7 @@ ext_draw_tui() {
         out+="   $(dim "[$((EXT_SCROLL + 1))-$((end + 1)) of ${#EXT_IDS[@]}]")"
     fi
     out+=$'\n'
-    out+=$'\033[2K'"  $(dim "↑/↓ move · Space toggle · a all/none · i invert · Enter install · q/Esc skip")"$'\n'
+    out+=$'\033[2K'"  $(dim "↑/↓ move · Space toggle · a all/none · i invert · Enter $verb · q/Esc skip")"$'\n'
     out+=$'\033[J'
 
     printf '%s' "$out"
@@ -1942,7 +2226,7 @@ ext_select_tui() {
 
 # Line-based picker used when stdin/stdout is not a terminal.
 ext_select_prompt() {
-    echo "  Select what to install (space-separated numbers, 'a' for all, 'n' to skip):"
+    echo "  Select what to ${EXT_ACTION:-install} (space-separated numbers, 'a' for all, 'n' to skip):"
     echo
 
     local last_group="" i state
@@ -2259,12 +2543,13 @@ interactive_menu() {
         echo "    3) Git accounts & SSH  — accounts, SSH keys, clone wrappers"
         echo "    4) Proot-distro        — Termux only: install Ubuntu/Debian + Option 1"
         echo "    5) Extensions          — multi-select languages and CLI tools"
-        echo "    6) Everything          — run 1 → 2 → 3 → 5"
+        echo "    6) Uninstall           — remove installed extensions"
+        echo "    7) Everything          — run 1 → 2 → 3 → 5"
         echo "    q) Quit (or press Esc)"
         echo
 
         local choice="" rc=0
-        read_line_or_cancel "  Choose [1-6/q, Esc]: " choice || rc=$?
+        read_line_or_cancel "  Choose [1-7/q, Esc]: " choice || rc=$?
         if (( rc != 0 )); then
             echo "  Exiting."
             exit 0
@@ -2293,6 +2578,10 @@ interactive_menu() {
                 return
                 ;;
             6)
+                uninstall_extensions_menu
+                return
+                ;;
+            7)
                 SHELL_OFFER_NVIM=0
                 install_shell
                 install_nvim
@@ -2331,12 +2620,14 @@ Modules:
                   inside it. DISTRO: ubuntu or debian (Termux only).
   --ext [LIST]    Option 5 — multi-select picker, or comma-separated ids
                   (e.g. --ext python,node,antigravity)
+                  Mobile: flutter (Linux/macOS)
                   AI tools: antigravity (agy), opencode (proot-distro only)
+  --uninstall     Option 6 — pick installed extensions to remove
   --all           Options 1 + 2 + 3
   --everything    Options 1 + 2 + 3 + 5
 
-Extension picker keys (Option 5 / --ext without a list):
-  ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install · q/Esc skip
+Extension picker keys (Option 5 / --ext, and Option 6 uninstall):
+  ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install/remove · q/Esc skip
   (pipes and </dev/null fall back to a numbered prompt)
 
 Legacy options (still supported):
@@ -2382,7 +2673,7 @@ main() {
     elif [[ -d /data/data/com.termux/files/usr/bin ]]; then
         export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/sbin:$PATH"
     fi
-    export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.deno/bin:$HOME/.local/share/pnpm:$PATH"
+    export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.deno/bin:$HOME/.local/share/pnpm:$HOME/flutter/bin:$PATH"
     mkdir -p "$HOME/.local/bin" "$HOME/.opencode/bin" 2>/dev/null || true
 
     if [[ $# -eq 0 ]]; then
@@ -2424,6 +2715,10 @@ main() {
                     else
                         install_extensions_menu
                     fi
+                    ;;
+                --uninstall)
+                    uninstall_extensions_menu
+                    shift
                     ;;
                 --all)
                     SHELL_OFFER_NVIM=0

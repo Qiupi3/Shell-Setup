@@ -2,9 +2,9 @@
 # Per-user tool directories
 #
 # Tools installed by their own upstream installers (uv, Bun, Deno, pnpm,
-# OpenCode, Antigravity) live outside the system PATH. Add them here so a new
-# zsh session — including one started with `exec zsh` right after installation
-# — can find them without restarting Termux or proot-distro.
+# Flutter, OpenCode, Antigravity) live outside the system PATH. Add them here so
+# a new zsh session — including one started with `exec zsh` right after
+# installation — can find them without restarting Termux or proot-distro.
 # =============================================================================
 
 typeset -U path 2>/dev/null || true
@@ -16,6 +16,7 @@ _shell_setup_path_dirs=(
     "$HOME/.cargo/bin"
     "$HOME/.deno/bin"
     "$HOME/.local/share/pnpm"
+    "$HOME/flutter/bin"
     "$HOME/.antigravity/antigravity/bin"
     "$HOME/.antigravity-ide/antigravity-ide/bin"
 )

@@ -459,6 +459,7 @@ pkg_command() {
         npm)             echo "npm" ;;
         ca-certificates) echo "update-ca-certificates" ;;
         python3-pip)     echo "pip3" ;;
+        python)          echo "python3" ;;
         golang)          echo "go" ;;
         default-jdk|openjdk-17|openjdk) echo "java" ;;
         build-essential) echo "cc" ;;
@@ -1427,21 +1428,21 @@ ext_catalog() {
             EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
             EXT_DESCS=("Python 3 + pip + venv" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "rustc + cargo" "Default JDK" "gcc, make, headers" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
             EXT_PKGS=("python3 python3-pip python3-venv" "" "ruby" "nodejs npm" "" "" "" "php" "golang" "rustc cargo" "default-jdk" "build-essential" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd-find" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite3" "gh" "ffmpeg" "imagemagick")
-            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
+            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
             ;;
         termux)
             EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
             EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
             EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK 17" "clang + make" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
             EXT_PKGS=("python" "" "ruby" "nodejs" "" "" "" "php" "golang" "rust" "openjdk-17" "clang make" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "ffmpeg" "imagemagick")
-            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
+            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
             ;;
         mac)
             EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
             EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
             EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK" "make" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
             EXT_PKGS=("python" "" "ruby" "node" "" "" "" "php" "go" "rust" "openjdk" "make" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "ffmpeg" "imagemagick")
-            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
+            EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
     esac
 
     ext_catalog_ai_tools
@@ -1812,7 +1813,10 @@ ext_draw_tui() {
     for ((i = start; i <= end; i++)); do
         group="${EXT_GROUPS[$i]:-}"
         if (( i == start )); then
-            prev_group="${EXT_GROUPS[$((start - 1))]:-}"
+            # Bash 3.2 (macOS /bin/bash) has no negative array subscripts, so
+            # index -1 would abort here when the list is scrolled to the top.
+            prev_group=""
+            (( start > 0 )) && prev_group="${EXT_GROUPS[$((start - 1))]:-}"
             if [[ -n "$group" && "$group" != "$prev_group" ]]; then
                 last_group="$group"
                 out+=$'\033[2K'"      $(bold "$group")"$'\n'
@@ -1830,7 +1834,7 @@ ext_draw_tui() {
         [[ "${EXT_SELECTED[$i]:-0}" -eq 1 ]] && mark="$(green "[x]")"
 
         state=""
-        [[ "${EXT_INSTALLED[$i]:-0}" -eq 1 ]] && state=" $(dim "[installed]")"
+        [[ "${EXT_INSTALLED[$i]:-0}" -eq 1 ]] && state=" $(green "[installed]")"
 
         if (( i == EXT_CUR )); then
             out+=$'\033[2K'"  $(cyan "❯") $mark $(printf '%-14s' "${EXT_NAMES[$i]:-}") $(dim "${EXT_DESCS[$i]:-}")$state"$'\n'
@@ -1855,6 +1859,9 @@ ext_draw_tui() {
 # Returns 0 when the user confirmed, 1 when they cancelled or hit EOF.
 ext_select_tui() {
     local key c1 c2 i any rc=0
+    # Bash 3.2 (macOS /bin/bash) only accepts whole-second read timeouts.
+    local esc_timeout=1
+    (( BASH_VERSINFO[0] >= 4 )) && esc_timeout=0.05
 
     stty -echo 2>/dev/null || true
     printf '\033[?1049h'
@@ -1869,9 +1876,9 @@ ext_select_tui() {
         [[ -z "$key" ]] && break
 
         if [[ "$key" == $'\033' ]]; then
-            read -rsn1 -t 0.05 c1 2>/dev/null || c1=""
+            read -rsn1 -t "$esc_timeout" c1 2>/dev/null || c1=""
             if [[ "$c1" == "[" || "$c1" == "O" ]]; then
-                read -rsn1 -t 0.05 c2 2>/dev/null || c2=""
+                read -rsn1 -t "$esc_timeout" c2 2>/dev/null || c2=""
                 key="$key$c1$c2"
             elif [[ -n "$c1" ]]; then
                 key="$key$c1"
@@ -1945,7 +1952,7 @@ ext_select_prompt() {
             echo "  $(bold "$last_group")"
         fi
         state=""
-        [[ "${EXT_INSTALLED[$i]:-0}" -eq 1 ]] && state=" $(dim "[installed]")"
+        [[ "${EXT_INSTALLED[$i]:-0}" -eq 1 ]] && state=" $(green "[installed]")"
         printf "    %2d) %-14s — %s%s\n" "$((i + 1))" "${EXT_NAMES[$i]:-}" "${EXT_DESCS[$i]:-}" "$state"
     done
     echo
@@ -2054,8 +2061,8 @@ proot_distro_rootfs() {
 select_proot_distro() {
     local choice="" rc=0
     local ubuntu_state="" debian_state=""
-    proot_distro_rootfs ubuntu >/dev/null 2>&1 && ubuntu_state=" $(dim "[installed]")"
-    proot_distro_rootfs debian >/dev/null 2>&1 && debian_state=" $(dim "[installed]")"
+    proot_distro_rootfs ubuntu >/dev/null 2>&1 && ubuntu_state=" $(green "[installed]")"
+    proot_distro_rootfs debian >/dev/null 2>&1 && debian_state=" $(green "[installed]")"
 
     echo "  Choose a Linux distribution:"
     echo

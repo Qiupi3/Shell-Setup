@@ -103,6 +103,11 @@ fi
 #   ./install.sh --uninstall        # Option 6 (interactive picker)
 #   ./install.sh --all              # Options 1 + 2 + 3
 #   ./install.sh --everything       # Options 1 + 2 + 3 + 5
+#   ./install.sh --yes              # auto-accept "patch existing file" prompts
+#
+# Existing files under $HOME are never overwritten silently: when a destination
+# differs from this checkout, the installer lists it and asks before patching,
+# keeping a <file>.bak.<timestamp> backup. --yes auto-accepts those prompts.
 #
 # Legacy flags (still supported):
 #   --modules        Copy shell configs only (no package install, no chsh)
@@ -132,6 +137,12 @@ LINUX_ID=""          # debian | ubuntu | ... (from /etc/os-release)
 LINUX_VERSION=""     # 13 | 24.04 | ...
 APT_UPDATED=0        # run apt-get update at most once per installer run
 IS_PROOT_DISTRO=0    # 1 when running inside a proot-distro container
+ASSUME_YES=0         # 1 = auto-accept the "patch existing file" prompts (--yes)
+
+# Non-interactive installs can preset this instead of passing --yes.
+if [[ "${SHELL_SETUP_ASSUME_YES:-0}" == "1" ]]; then
+    ASSUME_YES=1
+fi
 
 MANAGED_BEGIN="# >>> Shell-Setup managed >>>"
 MANAGED_END="# <<< Shell-Setup managed <<<"
@@ -562,8 +573,159 @@ confirm() {
     [[ "$answer" =~ ^[Yy] ]]
 }
 
+# ---------------------------------------------------------------------------
+# Change-aware installation of files from this repository into $HOME
+# ---------------------------------------------------------------------------
+# True when the patch prompts should be answered automatically (--yes).
+assume_yes() { [[ "$ASSUME_YES" == "1" ]]; }
+
+# True when both paths hold the same content (symlinks compare by target).
+files_equal() {
+    local a="$1" b="$2"
+    if [[ -L "$a" || -L "$b" ]]; then
+        [[ "$(readlink "$a" 2>/dev/null || true)" == "$(readlink "$b" 2>/dev/null || true)" ]]
+        return
+    fi
+    cmp -s "$a" "$b"
+}
+
+# Copy an existing file aside before it is replaced by the setup's version.
+# Prints the backup path on stdout; returns 1 when no backup could be made.
+backup_existing_file() {
+    local dst="$1"
+    [[ -e "$dst" || -L "$dst" ]] || return 1
+
+    local bak="$dst.bak.$(date +%Y%m%d%H%M%S)"
+    local n=0
+    while [[ -e "$bak" || -L "$bak" ]]; do
+        n=$((n + 1))
+        bak="$dst.bak.$(date +%Y%m%d%H%M%S).$n"
+    done
+    cp -pP "$dst" "$bak" || return 1
+    printf '%s\n' "$bak"
+}
+
+# Install one file from the repository into $HOME with change detection:
+#   destination missing   → install it
+#   destination identical → report "already up to date"
+#   destination differs   → ask before patching; the existing file is backed up
+# Usage: install_repo_file <src> <dst> [mode] [default]
+#   mode    chmod applied to the installed file (e.g. 755)
+#   default default answer to the patch prompt, "y" or "n"
+install_repo_file() {
+    local src="$1" dst="$2" mode="${3:-}" default="${4:-y}"
+
+    if [[ ! -e "$src" && ! -L "$src" ]]; then
+        warn "Setup file not found: $(bold "$src")"
+        return 1
+    fi
+    if [[ -d "$dst" ]]; then
+        warn "Cannot install $(bold "$dst"): it already exists as a directory."
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$dst")"
+
+    # Destination does not exist yet → plain install.
+    if [[ ! -e "$dst" && ! -L "$dst" ]]; then
+        info "Installing $(bold "$dst")"
+        if ! cp -P "$src" "$dst"; then
+            err "Failed to install $dst."
+            return 1
+        fi
+        [[ -n "$mode" ]] && chmod "$mode" "$dst"
+        return 0
+    fi
+
+    # Same content → nothing to do.
+    if files_equal "$src" "$dst"; then
+        info "$(bold "$dst") — $(green "already up to date")"
+        return 0
+    fi
+
+    # Different content → the setup ships a newer version; ask before patching.
+    warn "$(bold "$dst") already exists and differs from this Shell-Setup checkout (the setup has a newer version, or you customized it)."
+    if ! assume_yes && ! confirm "  Replace it with the setup version? (your file is kept as a backup)" "$default"; then
+        info "Kept your version of $(bold "$dst")."
+        return 0
+    fi
+
+    local bak=""
+    if ! bak="$(backup_existing_file "$dst")"; then
+        err "Could not back up $dst; leaving it untouched."
+        return 1
+    fi
+    if ! cp -P "$src" "$dst"; then
+        err "Failed to patch $dst."
+        return 1
+    fi
+    [[ -n "$mode" ]] && chmod "$mode" "$dst"
+    info "Patched $(bold "$dst") (backup: $(bold "$bak"))"
+    return 0
+}
+
+# List the files that differ from the setup and ask, once, whether to replace
+# them all. Arguments: dst_dir default rel-path...
+ask_patch_files() {
+    local dst_dir="$1" default="$2"
+    shift 2
+
+    warn "$# file(s) under $(bold "$dst_dir") differ from this Shell-Setup checkout (the setup has a newer version, or they were customized):"
+    local rel shown=0
+    for rel in "$@"; do
+        if (( shown >= 15 )); then
+            echo "      $(dim "… and $(($# - shown)) more")"
+            break
+        fi
+        printf '      %s\n' "$(dim "$rel")"
+        shown=$((shown + 1))
+    done
+
+    if assume_yes; then
+        info "Auto-accepting (--yes): replacing the files listed above."
+        return 0
+    fi
+    confirm "  Replace them with the setup version? (your files are kept as backups)" "$default"
+}
+
+# Replace the listed files with the setup's version, backing up each existing
+# copy first. Arguments: src_dir dst_dir rel-path...
+patch_repo_files() {
+    local src_dir="$1" dst_dir="$2"
+    shift 2
+
+    local rel src dst bak
+    for rel in "$@"; do
+        src="$src_dir/$rel"
+        dst="$dst_dir/$rel"
+
+        if [[ ! -e "$src" && ! -L "$src" ]]; then
+            warn "Skipping $(bold "$dst"): not found in the setup."
+            continue
+        fi
+        if [[ -d "$dst" ]]; then
+            warn "Skipping $(bold "$dst"): it already exists as a directory."
+            continue
+        fi
+
+        mkdir -p "$(dirname "$dst")"
+        if ! bak="$(backup_existing_file "$dst")"; then
+            warn "Could not back up $(bold "$dst"); left it untouched."
+            continue
+        fi
+        if ! cp -P "$src" "$dst"; then
+            err "Failed to patch $dst."
+            continue
+        fi
+        info "Patched $(bold "$dst") (backup: $(bold "$bak"))"
+    done
+    return 0
+}
+
 # Safe recursive copy: merges contents of src_dir into dst_dir without deleting
-# any existing files in dst_dir that are not part of this project.
+# any existing files in dst_dir that are not part of this project. New files
+# are copied right away; files that already exist but differ from the setup are
+# only replaced after confirmation, with a backup of the existing copy.
 safe_copy_recursive() {
     local src_dir="$1"
     local dst_dir="$2"
@@ -571,29 +733,64 @@ safe_copy_recursive() {
     [[ -d "$src_dir" ]] || return 0
     mkdir -p "$dst_dir"
 
-    (
-        cd "$src_dir" || exit 1
+    # Recreate directory hierarchy in destination
+    while IFS= read -r -d '' dir; do
+        mkdir -p "$dst_dir/${dir#./}"
+    done < <(cd "$src_dir" && find . -mindepth 1 -type d -print0)
 
-        # Recreate directory hierarchy in destination
-        find . -mindepth 1 -type d -print0 | while IFS= read -r -d '' dir; do
-            local rel="${dir#./}"
-            mkdir -p "$dst_dir/$rel"
-        done
+    # Collect files and symlinks
+    local -a rels=()
+    while IFS= read -r -d '' file; do
+        rels+=("${file#./}")
+    done < <(cd "$src_dir" && find . -mindepth 1 \( -type f -o -type l \) -print0)
+    if (( ${#rels[@]} == 0 )); then
+        return 0
+    fi
 
-        # Copy files and symlinks safely
-        find . -mindepth 1 \( -type f -o -type l \) -print0 | while IFS= read -r -d '' file; do
-            local rel="${file#./}"
-            local target="$dst_dir/$rel"
+    local rel target new=0 same=0
+    local -a changed=()
+    for rel in "${rels[@]}"; do
+        target="$dst_dir/$rel"
 
-            # Preserve existing user git account list (do not overwrite with repo template)
-            if [[ "$rel" == "git/accountList" && -f "$target" ]]; then
-                continue
-            fi
+        # Preserve existing user git account list (do not overwrite with repo template)
+        if [[ "$rel" == "git/accountList" && -f "$target" ]]; then
+            continue
+        fi
+        # A directory in the destination cannot be replaced by a file.
+        if [[ -d "$target" ]]; then
+            warn "Skipping $(bold "$target"): it already exists as a directory."
+            continue
+        fi
 
-            mkdir -p "$(dirname "$target")"
-            cp -P -f "$file" "$target"
-        done
-    )
+        mkdir -p "$(dirname "$target")"
+
+        if [[ ! -e "$target" && ! -L "$target" ]]; then
+            cp -P "$src_dir/$rel" "$target"
+            new=$((new + 1))
+        elif files_equal "$src_dir/$rel" "$target"; then
+            same=$((same + 1))
+        else
+            changed+=("$rel")
+        fi
+    done
+
+    if (( new > 0 )); then
+        info "Installed $(bold "$new") new file(s) into $(bold "$dst_dir")"
+    fi
+    if (( same > 0 )); then
+        info "$(bold "$same") file(s) in $(bold "$dst_dir") are already up to date"
+    fi
+
+    if (( ${#changed[@]} == 0 )); then
+        return 0
+    fi
+
+    if ask_patch_files "$dst_dir" y "${changed[@]}"; then
+        patch_repo_files "$src_dir" "$dst_dir" "${changed[@]}"
+    else
+        info "Kept your $(( ${#changed[@]} )) modified file(s) in $(bold "$dst_dir")"
+    fi
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -855,17 +1052,37 @@ install_shell_configs() {
 
     if [[ -d "$REPO_DIR/zsh" ]]; then
         info "Copying zsh modules from $(bold "$REPO_DIR/zsh/") → ~/.zsh/"
-        local f base
+        local f base new=0 same=0
+        local -a changed=()
         for f in "$REPO_DIR/zsh"/*.zsh; do
             [[ -e "$f" ]] || continue
             base="$(basename "$f")"
-            cp "$f" "$ZSH_DIR/$base"
+            if [[ ! -e "$ZSH_DIR/$base" && ! -L "$ZSH_DIR/$base" ]]; then
+                cp "$f" "$ZSH_DIR/$base"
+                new=$((new + 1))
+            elif files_equal "$f" "$ZSH_DIR/$base"; then
+                same=$((same + 1))
+            else
+                changed+=("$base")
+            fi
         done
 
+        if (( new > 0 )); then
+            info "Installed $(bold "$new") new module(s) into ~/.zsh/"
+        fi
+        if (( same > 0 )); then
+            info "$(bold "$same") module(s) in ~/.zsh/ are already up to date"
+        fi
+        if (( ${#changed[@]} > 0 )); then
+            if ask_patch_files "$ZSH_DIR" y "${changed[@]}"; then
+                patch_repo_files "$REPO_DIR/zsh" "$ZSH_DIR" "${changed[@]}"
+            else
+                info "Kept your $(( ${#changed[@]} )) modified module(s) in $(bold "$ZSH_DIR")"
+            fi
+        fi
+
         if [[ -f "$REPO_DIR/zsh/customizeGit.sh" ]]; then
-            info "Installing Git account customizer → ~/.zsh/customizeGit.sh"
-            cp "$REPO_DIR/zsh/customizeGit.sh" "$ZSH_DIR/customizeGit.sh"
-            chmod 755 "$ZSH_DIR/customizeGit.sh"
+            install_repo_file "$REPO_DIR/zsh/customizeGit.sh" "$ZSH_DIR/customizeGit.sh" 755
         fi
 
         # Legacy cleanups only. Never touch ~/.zsh/git-custom.zsh: it holds
@@ -875,11 +1092,9 @@ install_shell_configs() {
     fi
 
     if [[ -f "$ENV_DIR/base.sh" ]]; then
-        info "Copying base config from $(bold "$ENV_DIR/base.sh") → ~/.zsh/base.zsh"
-        cp "$ENV_DIR/base.sh" "$ZSH_DIR/base.zsh"
+        install_repo_file "$ENV_DIR/base.sh" "$ZSH_DIR/base.zsh"
     elif [[ -f "$ENV_DIR/no-git" ]]; then
-        info "Copying legacy non-git config from $(bold "$ENV_DIR/no-git") → ~/.zsh/base.zsh"
-        cp "$ENV_DIR/no-git" "$ZSH_DIR/base.zsh"
+        install_repo_file "$ENV_DIR/no-git" "$ZSH_DIR/base.zsh"
     fi
 
     local plugin_dir="$ZSH_DIR/plugins/zsh-syntax-highlighting"
@@ -973,14 +1188,11 @@ install_git_helpers() {
     mkdir -p "$ZSH_DIR"
 
     if [[ -f "$REPO_DIR/zsh/git-functions.zsh" ]]; then
-        info "Installing generic git helpers → ~/.zsh/git-functions.zsh"
-        cp "$REPO_DIR/zsh/git-functions.zsh" "$ZSH_DIR/git-functions.zsh"
+        install_repo_file "$REPO_DIR/zsh/git-functions.zsh" "$ZSH_DIR/git-functions.zsh"
     fi
 
     if [[ -f "$REPO_DIR/zsh/customizeGit.sh" ]]; then
-        info "Installing Git account customizer → ~/.zsh/customizeGit.sh"
-        cp "$REPO_DIR/zsh/customizeGit.sh" "$ZSH_DIR/customizeGit.sh"
-        chmod 755 "$ZSH_DIR/customizeGit.sh"
+        install_repo_file "$REPO_DIR/zsh/customizeGit.sh" "$ZSH_DIR/customizeGit.sh" 755
     fi
 
     # The generated account wrappers only exist inside a zsh session. Make
@@ -1009,18 +1221,16 @@ install_ssh_files() {
     mkdir -p "$ssh_dir"
     chmod 700 "$ssh_dir"
 
-    if [[ -f "$REPO_DIR/.ssh/config" && ! -f "$ssh_dir/config" ]]; then
-        info "Installing initial SSH config → ~/.ssh/config"
-        cp "$REPO_DIR/.ssh/config" "$ssh_dir/config"
-        chmod 600 "$ssh_dir/config"
+    if [[ -f "$REPO_DIR/.ssh/config" ]]; then
+        # ~/.ssh/config usually holds personal host entries, so the patch
+        # prompt defaults to "no" and the existing file is always backed up.
+        install_repo_file "$REPO_DIR/.ssh/config" "$ssh_dir/config" 600 n
     fi
 
     repair_ssh_config
 
     if [[ -f "$REPO_DIR/.ssh/setup.sh" ]]; then
-        info "Installing SSH setup helper → ~/.ssh/setup.sh"
-        cp "$REPO_DIR/.ssh/setup.sh" "$ssh_dir/setup.sh"
-        chmod 755 "$ssh_dir/setup.sh"
+        install_repo_file "$REPO_DIR/.ssh/setup.sh" "$ssh_dir/setup.sh" 755
     fi
 
     # Make sure OpenSSH can actually parse the resulting config.
@@ -1144,13 +1354,15 @@ setup_gitconfig() {
     if [[ ! -f "$account_list" && -f "$REPO_DIR/.config/git/accountList" ]]; then
         info "Installing initial account list → $account_list"
         cp "$REPO_DIR/.config/git/accountList" "$account_list"
+    elif [[ -f "$account_list" ]]; then
+        info "$(bold "$account_list") — $(green "kept") (existing accounts are never replaced)"
     fi
 
     if [[ ! -f "$global_gitconfig" && -f "$repo_gitconfig" ]]; then
         info "Copying default .gitconfig from $(bold "$repo_gitconfig") → ~/.gitconfig"
         cp "$repo_gitconfig" "$global_gitconfig"
     else
-        info "Configuring global git settings in ~/.gitconfig..."
+        info "Keeping your existing ~/.gitconfig; applying setup settings via git config..."
         git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers 2>/dev/null || true
     fi
 
@@ -1791,10 +2003,7 @@ ext_installed() {
 install_paths_module() {
     mkdir -p "$ZSH_DIR"
     if [[ -f "$REPO_DIR/zsh/paths.zsh" ]]; then
-        if [[ ! -f "$ZSH_DIR/paths.zsh" ]] \
-            || ! cmp -s "$REPO_DIR/zsh/paths.zsh" "$ZSH_DIR/paths.zsh"; then
-            cp "$REPO_DIR/zsh/paths.zsh" "$ZSH_DIR/paths.zsh"
-        fi
+        install_repo_file "$REPO_DIR/zsh/paths.zsh" "$ZSH_DIR/paths.zsh"
     fi
     patch_zshrc
 }
@@ -2473,18 +2682,16 @@ setup_git_aliases() {
 
     mkdir -p "$ZSH_DIR"
 
-    if [[ -f "$dest" ]]; then
-        info "Git aliases already exist at ~/.zsh/git-aliases.zsh"
-        if ! confirm "  Overwrite with latest unified version?"; then
-            return
-        fi
+    if [[ ! -f "$src" ]]; then
+        warn "git-aliases.zsh not found in the repository."
+        return 0
     fi
 
-    info "Installing git-aliases.zsh → ~/.zsh/"
-    cp "$src" "$dest"
+    # Detects an existing copy and asks before patching it (backup kept).
+    install_repo_file "$src" "$dest"
+
     # Clean up legacy separate git-submodule.zsh if it exists
     rm -f "$ZSH_DIR/git-submodule.zsh"
-    info "Unified Git aliases and submodule shortcuts installed."
 }
 
 # Backward compatibility alias for setup_git_submodule_aliases
@@ -2625,6 +2832,8 @@ Modules:
   --uninstall     Option 6 — pick installed extensions to remove
   --all           Options 1 + 2 + 3
   --everything    Options 1 + 2 + 3 + 5
+  --yes, -y       Auto-accept prompts that patch existing config files
+                  (same as SHELL_SETUP_ASSUME_YES=1)
 
 Extension picker keys (Option 5 / --ext, and Option 6 uninstall):
   ↑/↓ or j/k move · Space toggle · a all/none · i invert · Enter install/remove · q/Esc skip
@@ -2649,6 +2858,14 @@ When run without arguments, launches the interactive menu.
 Recommended CLI tools (tree, which, man, less, curl, wget, unzip, file) are
 optional: Option 1 lists what breaks without them and defaults to "no".
 
+Existing files are never overwritten silently: new files are installed,
+identical files are reported as up to date, and files that differ from this
+checkout are listed and patched only after confirmation, keeping a
+<file>.bak.<timestamp> backup of your copy. Prompts default to "yes" for
+setup-owned files and to "no" for ~/.ssh/config (personal host entries).
+Non-interactive runs keep your files; use --yes (or set
+SHELL_SETUP_ASSUME_YES=1) to accept the patches automatically.
+
 Supported environments:
   • Termux (Android)
   • macOS (Homebrew)
@@ -2661,6 +2878,15 @@ EOF
 # ---------------------------------------------------------------------------
 main() {
     detect_env
+
+    # Pre-scan for --yes so it applies no matter where it appears on the
+    # command line (action flags run immediately when they are parsed).
+    local arg
+    for arg in "$@"; do
+        if [[ "$arg" == "--yes" || "$arg" == "-y" ]]; then
+            ASSUME_YES=1
+        fi
+    done
 
     # Make the environment's own binaries win. In proot-distro, Termux's
     # bind-mounted tools are only a fallback: its ssh/ssh-keygen resolve
@@ -2718,6 +2944,10 @@ main() {
                     ;;
                 --uninstall)
                     uninstall_extensions_menu
+                    shift
+                    ;;
+                --yes|-y)
+                    ASSUME_YES=1
                     shift
                     ;;
                 --all)

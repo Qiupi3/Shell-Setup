@@ -5,6 +5,7 @@ A modular, cross-platform Zsh and development environment configuration for **Te
 ## Features
 
 - **Selectable modules**: Shell environment, Neovim, Git accounts & SSH, Extensions, and Uninstall — plus an optional Ubuntu/Debian proot-distro bootstrap. Install only what you need; each module is self-sufficient.
+- **Change-aware updates**: every file copied into `$HOME` is checked first. Missing files are installed, identical files are skipped, and files that differ from the setup are only patched after confirmation — your current copy is always kept as `<file>.bak.<timestamp>` (`--yes` auto-accepts).
 - **Modular Zsh**: Core shell modules are maintained in `zsh/` (`aliases.zsh`, `git-aliases.zsh`, `git-functions.zsh`, `prompt.zsh`), copied to `~/.zsh/`, and sourced dynamically by `~/.zshrc`.
 - **Environment Base Configs**: Platform-specific shortcuts (`base.sh`) installed as `~/.zsh/base.zsh` (e.g., Homebrew aliases on macOS, pkg/storage aliases on Termux, sudo-aware apt aliases on Ubuntu/Debian).
 - **Neovim as the default editor**: Config from `.config/nvim/` is installed to `~/.config/nvim`, with an `EDITOR`/`VISUAL` block appended to `~/.zshrc` and `git core.editor` set. Owned exclusively by Option 2.
@@ -95,6 +96,30 @@ Running without arguments launches an interactive menu:
 needs. The recommended CLI tools (`tree`, `which`, `man`, `less`, `curl`,
 `wget`, `unzip`, `file`, `ps`) are offered at the end of Option 1, defaulting to
 **no**, and the installer lists exactly which features will not work if skipped.
+
+### Updating an existing installation (patch prompts)
+
+Nothing under `$HOME` is overwritten blindly. For every file the installer
+copies out of the repository it first checks the destination:
+
+- **missing** → installed;
+- **identical content** → reported as `already up to date`;
+- **different content** (the setup ships a newer version, or you customized
+  the file) → the file is listed and you are asked before it is patched.
+  Accepting keeps your current copy next to the new one as
+  `<file>.bak.<timestamp>`; declining leaves your file untouched.
+
+Directory trees (`~/.config/nvim/`, `~/.termux/`, `~/.zsh/*.zsh`) ask once for
+the whole list of differing files instead of prompting per file. Prompts
+default to **yes** for setup-owned files and to **no** for `~/.ssh/config`,
+which usually holds personal host entries. `~/.config/git/accountList` is only
+created when missing (your accounts are never replaced), and `~/.gitconfig`
+is only copied when missing — afterwards setup settings are applied through
+`git config --global` so your customizations survive.
+
+Non-interactive runs (no terminal, EOF at a prompt) keep your files. Pass
+`--yes` (or set `SHELL_SETUP_ASSUME_YES=1`) to accept the patches
+automatically — the backups are still written.
 
 ### Option 3 flow (Git accounts & SSH)
 
@@ -211,6 +236,9 @@ the alias was ignored.
 ./install.sh --uninstall        # Option 6 (interactive uninstall picker)
 ./install.sh --all              # Options 1 + 2 + 3
 ./install.sh --everything       # Options 1 + 2 + 3 + 5
+./install.sh --yes              # auto-accept "patch existing file" prompts
+                                 # (same as SHELL_SETUP_ASSUME_YES=1; position
+                                 #  in the command line does not matter)
 
 # Legacy flags (still supported)
 ./install.sh --modules          # Copy shell configs only (no packages, no chsh)

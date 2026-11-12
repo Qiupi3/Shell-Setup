@@ -18,6 +18,20 @@ alias lao='ls -a1' # list all file in one column (1 row each)
 alias lc='ls -1 | wc -l' # count number of file
 alias lca='ls -a1 | wc -l' # count number of file (including hidden)
 
+# Colorized 'ls' (plain 'ls' stays uncolored)
+if ls --version >/dev/null 2>&1; then
+    alias lsg='ls --color=auto' # GNU coreutils (Linux, Termux)
+else
+    alias lsg='ls -G' # BSD/macOS
+fi
+
+# eza shortcuts (classic ls/ll/la/tr* aliases remain untouched)
+alias e='eza --icons=auto --group-directories-first'
+alias elt='e -la --total-size' # long listing with real directory sizes
+alias es='e -la --sort=size --reverse' # largest entries first
+alias em='e -la --sort=modified --reverse' # most recently modified first
+alias etg='e --tree --level=2 --git-ignore' # shallow tree, skip .gitignore'd paths
+
 alias trd='tree -d' # list directory in tree view
 alias tra='tree -a' # list all file in tree view
 alias trin='tree -I "node_modules|.git|cache|vendor"' # list file excluding node_modules, .git, cache, and vendor folders

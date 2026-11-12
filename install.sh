@@ -2187,11 +2187,12 @@ install_nerd_font() {
         return 0
     fi
 
-    local font_dir
+    local font_dir conf_dir=""
     if [[ "$ENV_NAME" == "mac" ]]; then
         font_dir="$HOME/Library/Fonts"
     else
         font_dir="$HOME/.local/share/fonts"
+        conf_dir="$HOME/.config/fontconfig/conf.d"
     fi
     mkdir -p "$font_dir"
 
@@ -2200,12 +2201,25 @@ install_nerd_font() {
         err "Could not extract the Nerd Font symbols."
         return 1
     fi
+
+    # The symbols archive ships a fontconfig rule that makes "Symbols Nerd
+    # Font" the preferred fallback for common terminal fonts. Without it, some
+    # terminals keep drawing boxes even though the glyphs are installed.
+    if [[ -n "$conf_dir" ]]; then
+        mkdir -p "$conf_dir"
+        "$unzip_cmd" -o -q "$tmp_zip" "10-nerd-font-symbols.conf" -d "$conf_dir" \
+            >/dev/null 2>&1 || true
+    fi
     rm -rf "$tmp_dir"
 
     # Linux terminals resolve missing glyphs through fontconfig, so a cache
     # rebuild makes the icons available immediately.
-    if [[ "$ENV_NAME" == "linux" ]] && native_cmd_exists fc-cache; then
-        fc-cache -f "$font_dir" >/dev/null 2>&1 || true
+    if [[ "$ENV_NAME" == "linux" ]]; then
+        if native_cmd_exists fc-cache; then
+            fc-cache -f "$font_dir" >/dev/null 2>&1 || true
+        else
+            warn "fontconfig is missing; install it (fontconfig) if icons still show as boxes."
+        fi
     fi
     info "Installed Nerd Font symbol glyphs into $(bold "$font_dir")"
     info "Restart your terminal if the icons do not appear immediately."
@@ -2236,7 +2250,8 @@ maybe_install_nerd_font() {
         local size="3 MB"
         [[ -n "$termux_home" ]] && size="8 MB"
         if ! confirm "  Install a Nerd Font (~$size download) so eza's icons render?" y; then
-            info "Skipped the Nerd Font; eza icons will show as boxes until one is installed."
+            info "Skipped the Nerd Font; eza icons will show as boxes."
+            info "Re-run this installer and accept the prompt (or use --yes) to add one."
             return 0
         fi
     fi

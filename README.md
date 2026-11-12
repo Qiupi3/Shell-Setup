@@ -126,9 +126,11 @@ automatically — the backups are still written.
 Option 5's **eza** installer offers to add a Nerd Font, because eza's `--icons`
 output needs one. Accepting installs:
 
-- **Linux** → `SymbolsNerdFont*.ttf` in `~/.local/share/fonts/`, then refreshes
-  the fontconfig cache. Terminals use them as fallback glyphs, so your current
-  terminal font stays in place.
+- **Linux** → `SymbolsNerdFont*.ttf` in `~/.local/share/fonts/`, plus the
+  bundled `10-nerd-font-symbols.conf` in `~/.config/fontconfig/conf.d/`, then
+  refreshes the fontconfig cache. Terminals use them as fallback glyphs, so
+  your current terminal font stays in place. Fontconfig must be installed
+  (`fc-cache`); the installer warns when it is missing.
 - **macOS** → the same symbols fonts in `~/Library/Fonts/`.
 - **Termux** → `Inconsolata Nerd Font` as `~/.termux/font.ttf` (Termux can load
   only one font). An existing `font.ttf` is kept as

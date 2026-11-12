@@ -89,7 +89,9 @@ fi
 #   Option 5  Extensions         — pick languages and CLI tooling individually
 #   Option 6  Uninstall          — remove installed extensions
 #
-# User data is always written under $HOME. The repository is never modified.
+# User data is always written under $HOME (inside proot-distro, fonts also go to
+# Termux's home because that is the side the terminal reads). The repository is
+# never modified.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Qiupi3/Shell-Setup/main/install.sh | bash
@@ -1670,21 +1672,21 @@ ext_catalog() {
         linux)
             EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
             EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
-            EXT_DESCS=("Python 3 + pip + venv" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "rustc + cargo" "Default JDK" "gcc, make, headers" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
+            EXT_DESCS=("Python 3 + pip + venv" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "rustc + cargo" "Default JDK" "gcc, make, headers" "Syntax-highlighted cat" "Modern ls with icons/git (Nerd Font option)" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
             EXT_PKGS=("python3 python3-pip python3-venv" "" "ruby" "nodejs npm" "" "" "" "php" "golang" "rustc cargo" "default-jdk" "build-essential" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd-find" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite3" "gh" "ffmpeg" "imagemagick")
             EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
             ;;
         termux)
             EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
             EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
-            EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK 17" "clang + make" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
+            EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK 17" "clang + make" "Syntax-highlighted cat" "Modern ls with icons/git (Nerd Font option)" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
             EXT_PKGS=("python" "" "ruby" "nodejs" "" "" "" "php" "golang" "rust" "openjdk-17" "clang make" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "ffmpeg" "imagemagick")
             EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
             ;;
         mac)
             EXT_IDS=(python uv ruby node bun pnpm deno php go rust java build bat eza httpie zoxide git-delta rg fd fzf jq tmux direnv gitlfs sqlite gh ffmpeg imagemagick)
             EXT_NAMES=("Python" "uv (Python pkg mgr)" "Ruby" "Node.js" "Bun (JS runtime)" "pnpm (JS pkg mgr)" "Deno (JS/TS runtime)" "PHP" "Go" "Rust" "Java (JDK)" "Build tools" "bat (cat with syntax)" "eza (ls replacement)" "HTTPie (HTTP client)" "zoxide (smarter cd)" "git-delta (better diffs)" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "Git LFS" "SQLite" "GitHub CLI" "FFmpeg" "ImageMagick")
-            EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK" "make" "Syntax-highlighted cat" "Modern ls with icons/git" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
+            EXT_DESCS=("Python + pip" "Fast Python package/dependency manager" "Ruby runtime" "Node.js + npm" "Fast JS runtime/bundler/package manager" "Fast disk-efficient package manager" "Secure JS/TS runtime" "PHP runtime" "Go toolchain" "Rust toolchain" "OpenJDK" "make" "Syntax-highlighted cat" "Modern ls with icons/git (Nerd Font option)" "User-friendly curl/wget alternative" "Learns and jumps to frequent dirs" "Syntax-highlighted git diffs" "Fast recursive grep" "Fast file finder" "Fuzzy finder" "JSON processor" "Terminal multiplexer" "Per-directory environment" "Large file support" "SQLite database" "GitHub CLI" "Audio/video conversion" "Image conversion")
             EXT_PKGS=("python" "" "ruby" "node" "" "" "" "php" "go" "rust" "openjdk" "make" "bat" "eza" "httpie" "zoxide" "git-delta" "ripgrep" "fd" "fzf" "jq" "tmux" "direnv" "git-lfs" "sqlite" "gh" "ffmpeg" "imagemagick")
             EXT_GROUPS=("Runtimes" "Runtimes" "Runtimes" "JS Tooling" "JS Tooling" "JS Tooling" "JS Tooling" "Runtimes" "Runtimes" "Runtimes" "Runtimes" "Compilers & build" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "CLI & dev tools" "Multimedia" "Multimedia")
     esac
@@ -2008,6 +2010,241 @@ install_paths_module() {
     patch_zshrc
 }
 
+# ---------------------------------------------------------------------------
+# 4c. Nerd Font (icon glyphs for eza and friends)
+# ---------------------------------------------------------------------------
+# Linux/macOS get the symbols-only font: it provides the icon glyphs as a
+# fallback, so the terminal can keep using the user's current font. Termux can
+# only load a single ~/.termux/font.ttf, so it gets a complete Nerd Font family.
+NERD_FONT_SYMBOLS_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/NerdFontsSymbolsOnly.zip"
+NERD_FONT_FULL_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Inconsolata.zip"
+NERD_FONT_FULL_FILE="InconsolataNerdFont-Regular.ttf"
+NERD_FONT_FULL_NAME="Inconsolata Nerd Font"
+
+# Download a URL to a file. Mirrors http_get's curl/wget fallback, including
+# Termux's binaries which remain usable for downloads inside proot-distro.
+http_download() {
+    local url="$1" out="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 2 -o "$out" "$url"
+    elif [[ -x /data/data/com.termux/files/usr/bin/curl ]]; then
+        /data/data/com.termux/files/usr/bin/curl -fsSL --retry 2 -o "$out" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$out" "$url"
+    elif [[ -x /data/data/com.termux/files/usr/bin/wget ]]; then
+        /data/data/com.termux/files/usr/bin/wget -qO "$out" "$url"
+    else
+        return 1
+    fi
+}
+
+# Termux's real home when running inside proot-distro. The container's $HOME is
+# separate, but the Android terminal renders fonts from the Termux home.
+proot_termux_home() {
+    local h="/data/data/com.termux/files/home"
+    [[ -d "$h" ]] && printf '%s\n' "$h"
+}
+
+# Print the home whose .termux/font.ttf drives the terminal font, when the
+# terminal is Termux (native Termux, or a proot guest running under Termux).
+# Returns 1 for a desktop terminal, which uses fontconfig instead.
+nerd_font_termux_home() {
+    if [[ "$ENV_NAME" == "termux" ]]; then
+        printf '%s\n' "$HOME"
+        return 0
+    fi
+    if [[ "${IS_PROOT_DISTRO:-0}" -eq 1 ]]; then
+        proot_termux_home
+        return
+    fi
+    return 1
+}
+
+# True when a Nerd Font (or its symbols-only variant) is already available.
+nerd_font_installed() {
+    local termux_home=""
+    termux_home="$(nerd_font_termux_home || true)"
+    if [[ -n "$termux_home" ]]; then
+        # grep keeps a plain (non-Nerd) font from being reported as one.
+        if [[ -s "$termux_home/.termux/font.ttf" ]] \
+            && grep -aqi 'nerd' "$termux_home/.termux/font.ttf" 2>/dev/null; then
+            return 0
+        fi
+        return 1
+    fi
+
+    # In proot-distro the terminal is Termux's; without a reachable Termux home
+    # the container's font directories cannot affect what the terminal renders.
+    if [[ "${IS_PROOT_DISTRO:-0}" -eq 1 ]]; then
+        return 1
+    fi
+
+    local listing="" f dir
+    if native_cmd_exists fc-list; then
+        listing="$(fc-list 2>/dev/null || true)"
+    fi
+    if [[ "$listing" == *NerdFont* || "$listing" == *"Nerd Font"* ]]; then
+        return 0
+    fi
+
+    for dir in "$HOME/Library/Fonts" "$HOME/.local/share/fonts" "$HOME/.fonts"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -e "$f" ]] || continue
+            case "${f##*/}" in
+                *NerdFont*|*"Nerd Font"*) return 0 ;;
+            esac
+        done
+    done
+    return 1
+}
+
+install_nerd_font() {
+    header "Nerd Font (icons)"
+
+    if nerd_font_installed; then
+        info "A Nerd Font is already installed."
+        return 0
+    fi
+
+    local unzip_cmd=""
+    if native_cmd_exists unzip; then
+        unzip_cmd="$(command -v unzip)"
+    else
+        info "Installing unzip (needed to extract the font archive)..."
+        if ! pkg_ensure unzip; then
+            err "unzip is required to install the Nerd Font."
+            return 1
+        fi
+        unzip_cmd="$(command -v unzip)"
+    fi
+    if [[ -z "$unzip_cmd" ]]; then
+        err "unzip is required to install the Nerd Font."
+        return 1
+    fi
+
+    local tmp_dir tmp_zip
+    tmp_dir="$(mktemp -d 2>/dev/null || mktemp -d -t shell-setup-font)"
+    tmp_zip="$tmp_dir/nerd-font.zip"
+
+    local termux_home=""
+    termux_home="$(nerd_font_termux_home || true)"
+
+    local url="$NERD_FONT_SYMBOLS_URL"
+    [[ -n "$termux_home" ]] && url="$NERD_FONT_FULL_URL"
+
+    info "Downloading the Nerd Font from GitHub..."
+    if ! http_download "$url" "$tmp_zip"; then
+        rm -rf "$tmp_dir"
+        err "Could not download the Nerd Font."
+        return 1
+    fi
+
+    if [[ -n "$termux_home" ]]; then
+        local font_file="$tmp_dir/$NERD_FONT_FULL_FILE"
+        if ! "$unzip_cmd" -o -q "$tmp_zip" "$NERD_FONT_FULL_FILE" -d "$tmp_dir" \
+            || [[ ! -s "$font_file" ]]; then
+            rm -rf "$tmp_dir"
+            err "Could not extract $NERD_FONT_FULL_FILE from the archive."
+            return 1
+        fi
+
+        local font_dst="$termux_home/.termux/font.ttf"
+        mkdir -p "$termux_home/.termux"
+        if [[ -f "$font_dst" ]]; then
+            local bak="$font_dst.bak.$(date +%Y%m%d%H%M%S)"
+            if cp -p "$font_dst" "$bak"; then
+                info "Kept your previous Termux font as $(bold "$bak")"
+            else
+                rm -rf "$tmp_dir"
+                err "Could not back up $font_dst; leaving it untouched."
+                return 1
+            fi
+        fi
+
+        if ! cp "$font_file" "$font_dst"; then
+            rm -rf "$tmp_dir"
+            err "Could not install $font_dst."
+            return 1
+        fi
+        rm -rf "$tmp_dir"
+
+        # Inside proot the Termux helper is an Android binary; run it anyway
+        # when present and let the user fall back to reopening Termux.
+        if native_cmd_exists termux-reload-settings; then
+            termux-reload-settings >/dev/null 2>&1 || true
+        elif [[ -x /data/data/com.termux/files/usr/bin/termux-reload-settings ]]; then
+            /data/data/com.termux/files/usr/bin/termux-reload-settings >/dev/null 2>&1 || true
+        fi
+
+        if [[ "${IS_PROOT_DISTRO:-0}" -eq 1 ]]; then
+            info "Installed $(bold "$NERD_FONT_FULL_NAME") as Termux's ~/.termux/font.ttf"
+            info "Run $(bold "termux-reload-settings") in Termux (or reopen Termux) to load it."
+        else
+            info "Installed $(bold "$NERD_FONT_FULL_NAME") as ~/.termux/font.ttf"
+            info "Reopen Termux if the icons do not appear immediately."
+        fi
+        return 0
+    fi
+
+    local font_dir
+    if [[ "$ENV_NAME" == "mac" ]]; then
+        font_dir="$HOME/Library/Fonts"
+    else
+        font_dir="$HOME/.local/share/fonts"
+    fi
+    mkdir -p "$font_dir"
+
+    if ! "$unzip_cmd" -o -q "$tmp_zip" "SymbolsNerdFont*.ttf" -d "$font_dir"; then
+        rm -rf "$tmp_dir"
+        err "Could not extract the Nerd Font symbols."
+        return 1
+    fi
+    rm -rf "$tmp_dir"
+
+    # Linux terminals resolve missing glyphs through fontconfig, so a cache
+    # rebuild makes the icons available immediately.
+    if [[ "$ENV_NAME" == "linux" ]] && native_cmd_exists fc-cache; then
+        fc-cache -f "$font_dir" >/dev/null 2>&1 || true
+    fi
+    info "Installed Nerd Font symbol glyphs into $(bold "$font_dir")"
+    info "Restart your terminal if the icons do not appear immediately."
+    return 0
+}
+
+# Offer the font when eza is installed. A Nerd Font is a soft dependency: eza
+# works without it, but --icons renders boxes for every file type.
+maybe_install_nerd_font() {
+    if nerd_font_installed; then
+        info "Nerd Font detected — eza icons will render."
+        return 0
+    fi
+
+    local termux_home=""
+    termux_home="$(nerd_font_termux_home || true)"
+
+    # Inside proot-distro the terminal still belongs to Termux, so the font is
+    # installed into the Termux home (the side the terminal actually reads).
+    # If that home is not reachable, point at the native setup instead.
+    if [[ "${IS_PROOT_DISTRO:-0}" -eq 1 && -z "$termux_home" ]]; then
+        info "eza icons are drawn by your Termux terminal, not the proot container."
+        info "Run Option 5 (eza) from Termux itself to install the Nerd Font there."
+        return 0
+    fi
+
+    if ! assume_yes; then
+        local size="3 MB"
+        [[ -n "$termux_home" ]] && size="8 MB"
+        if ! confirm "  Install a Nerd Font (~$size download) so eza's icons render?" y; then
+            info "Skipped the Nerd Font; eza icons will show as boxes until one is installed."
+            return 0
+        fi
+    fi
+
+    install_nerd_font || warn "Nerd Font installation did not complete."
+    return 0
+}
+
 configure_extension_post() {
     local id="$1"
     # Ensure common bin dirs are on PATH
@@ -2041,6 +2278,7 @@ configure_extension_post() {
             if native_cmd_exists eza; then
                 info "eza installed. You can use 'eza' as a modern 'ls' replacement."
             fi
+            maybe_install_nerd_font
             ;;
         bat)
             if native_cmd_exists bat || native_cmd_exists batcat; then

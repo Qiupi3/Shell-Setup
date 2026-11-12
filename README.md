@@ -13,7 +13,7 @@ A modular, cross-platform Zsh and development environment configuration for **Te
 - **Git accounts without leaking data**: `customizeGit.sh` writes accounts and generated wrappers only under `$HOME`. The repository ships no usernames, emails, or private wrappers.
 - **SSH key audit**: existing keys in `~/.ssh` are inspected and can be mapped to a Git account or to commit signing without regenerating them. New `ed25519` keys, `allowed_signers`, and host aliases are handled by `ssh-setup`.
 - **Termux SSH backup**: `Termux/ssh-backup.sh` backs up `~/.ssh` from Termux native and every proot-distro container as a single passphrase-encrypted GPG archive (`Termux-SSH-Backup.tar.gpg`) in Android shared storage, with a matching restore flow, local safety copies, and automatic cleanup after a successful restore. No key file is used.
-- **Selectable extensions**: a multi-select picker (Space to toggle, Enter to install) for individual languages (Python, Node.js, PHP, Go, Rust, Java), CLI tooling (ripgrep, fd, fzf, jq, tmux, gh, …), the Flutter SDK on Linux/macOS, and AI coding tools (Antigravity, plus OpenCode inside proot-distro) instead of everything at once.
+- **Selectable extensions**: a multi-select picker (Space to toggle, Enter to install) for individual languages (Python, Node.js, PHP, Go, Rust, Java), CLI tooling (ripgrep, fd, fzf, jq, tmux, gh, …; installing **eza** offers a Nerd Font for its icons), the Flutter SDK on Linux/macOS, and AI coding tools (Antigravity, plus OpenCode inside proot-distro) instead of everything at once.
 - **Extension uninstall**: Option 6 lists only tools that are currently installed and removes the selected ones — OS packages through `apt`/`brew`/`pkg`, and upstream-installed tools (uv, Bun, pnpm, Deno, Flutter, OpenCode, Antigravity) from their `$HOME` directories.
 - **System Cleanup & Storage Inspection**: Tailored storage usage inspection aliases (`hdu`, `pdu`, `sdu`, etc.) and cache cleanup scripts for macOS (`Mac/clean-up.sh`, `Mac/chrclean.sh`) and Termux (`Termux/clean-up.sh`).
 
@@ -120,6 +120,28 @@ is only copied when missing — afterwards setup settings are applied through
 Non-interactive runs (no terminal, EOF at a prompt) keep your files. Pass
 `--yes` (or set `SHELL_SETUP_ASSUME_YES=1`) to accept the patches
 automatically — the backups are still written.
+
+### Nerd Font icons (eza)
+
+Option 5's **eza** installer offers to add a Nerd Font, because eza's `--icons`
+output needs one. Accepting installs:
+
+- **Linux** → `SymbolsNerdFont*.ttf` in `~/.local/share/fonts/`, then refreshes
+  the fontconfig cache. Terminals use them as fallback glyphs, so your current
+  terminal font stays in place.
+- **macOS** → the same symbols fonts in `~/Library/Fonts/`.
+- **Termux** → `Inconsolata Nerd Font` as `~/.termux/font.ttf` (Termux can load
+  only one font). An existing `font.ttf` is kept as
+  `font.ttf.bak.<timestamp>`.
+
+A Nerd Font that is already available (detected through `fc-list` or the font
+directories) is never installed again. Inside proot-distro the font is written
+to Termux's own home (`/data/data/com.termux/files/home/.termux/font.ttf`),
+because the container's font directories are invisible to the Android terminal;
+run `termux-reload-settings` in Termux (or reopen Termux) to load it. The
+prompt defaults to **yes**, is skipped when stdin is closed, and is
+auto-accepted by `--yes` / `SHELL_SETUP_ASSUME_YES=1`. Restart the terminal (or
+reopen Termux) afterwards so the new glyphs load.
 
 ### Option 3 flow (Git accounts & SSH)
 
